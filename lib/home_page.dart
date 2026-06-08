@@ -6,6 +6,7 @@ import 'calculator/calculator_screen.dart';
 import 'route/route_screen.dart';
 import 'trips/saved_trips_screen.dart';
 import 'contacts/contacts_screen.dart';
+import 'copilot/copilot_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -107,6 +108,8 @@ class _HomePageState extends State<HomePage> {
                       _navButton(context, Icons.bookmark, 'Saved Trips', const SavedTripsScreen()),
                       const SizedBox(height: 12),
                       _navButton(context, Icons.people, 'Contacts', const ContactsScreen()),
+                      const SizedBox(height: 12),
+                      _navButton(context, Icons.mic, 'Co-Pilot', const CopilotScreen()),
                     ],
                   ),
                 ),
