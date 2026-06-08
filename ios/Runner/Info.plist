@@ -26,6 +26,12 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>TruCost needs camera access to photograph your rig</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TruCost uses your location to calculate deadhead miles</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>TruCost needs photo access to select a rig photo</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
