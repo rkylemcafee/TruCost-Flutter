@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'calculator/calculator_screen.dart';
 import 'route/route_screen.dart';
 import 'trips/saved_trips_screen.dart';
+import 'contacts/contacts_screen.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -99,63 +100,13 @@ class _HomePageState extends State<HomePage> {
                   padding: const EdgeInsets.symmetric(horizontal: 32),
                   child: Column(
                     children: [
-                      // Route a Load
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.push(context,
-                                MaterialPageRoute(builder: (_) => const RouteScreen()));
-                          },
-                          icon: const Icon(Icons.route, size: 24),
-                          label: const Text('Route a Load', style: TextStyle(fontSize: 18)),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            backgroundColor: Colors.white,
-                            foregroundColor: Colors.blueGrey[800],
-                            elevation: 4,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ),
+                      _navButton(context, Icons.route, 'Route a Load', const RouteScreen(), filled: true),
                       const SizedBox(height: 12),
-                      // I Know My Miles
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.push(context,
-                                MaterialPageRoute(builder: (_) => const CalculatorScreen()));
-                          },
-                          icon: const Icon(Icons.calculate, size: 24),
-                          label: const Text('I Know My Miles', style: TextStyle(fontSize: 18)),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white70),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ),
+                      _navButton(context, Icons.calculate, 'I Know My Miles', const CalculatorScreen()),
                       const SizedBox(height: 12),
-                      // Saved Trips
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.push(context,
-                                MaterialPageRoute(builder: (_) => const SavedTripsScreen()));
-                          },
-                          icon: const Icon(Icons.bookmark, size: 24),
-                          label: const Text('Saved Trips', style: TextStyle(fontSize: 18)),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white70),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ),
+                      _navButton(context, Icons.bookmark, 'Saved Trips', const SavedTripsScreen()),
+                      const SizedBox(height: 12),
+                      _navButton(context, Icons.people, 'Contacts', const ContactsScreen()),
                     ],
                   ),
                 ),
@@ -165,6 +116,36 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _navButton(BuildContext context, IconData icon, String label, Widget screen, {bool filled = false}) {
+    return SizedBox(
+      width: double.infinity,
+      child: filled
+          ? ElevatedButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => screen)),
+              icon: Icon(icon, size: 24),
+              label: Text(label, style: const TextStyle(fontSize: 18)),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.blueGrey[800],
+                elevation: 4,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            )
+          : OutlinedButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => screen)),
+              icon: Icon(icon, size: 24),
+              label: Text(label, style: const TextStyle(fontSize: 18)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white70),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
     );
   }
 }

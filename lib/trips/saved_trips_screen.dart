@@ -29,7 +29,7 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
 
       final rows = await _supabase
           .from('trips')
-          .select()
+          .select('*, contacts(*)')
           .eq('user_id', user.id)
           .order('trip_date', ascending: false);
 
@@ -164,6 +164,13 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
     final origin = trip['origin'] ?? '';
     final destination = trip['destination'] ?? '';
     final isWinner = net >= 0;
+    final contact = trip['contacts'];
+    final contactName = contact is Map ? (contact['name'] ?? '') : '';
+    final contactCompany = contact is Map ? (contact['company'] ?? '') : '';
+    final contactPhone = contact is Map ? (contact['phone'] ?? '') : '';
+    final contactLine = contactName.isNotEmpty
+        ? '$contactName${contactCompany.isNotEmpty ? ' — $contactCompany' : ''}'
+        : '';
 
     final json = trip['estimate_json'];
     final costPerMile = json is Map ? _toNum(json['costPerMile']) : 0.0;
@@ -180,6 +187,9 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
             if (origin.isNotEmpty && destination.isNotEmpty)
               Text('$origin → $destination',
                   style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+              if (contactLine.isNotEmpty)
+              Text(contactLine,
+                  style: TextStyle(fontSize: 11, color: Colors.blue[600], fontWeight: FontWeight.w500)),    
             const SizedBox(height: 4),
             Wrap(
               spacing: 6,
@@ -209,6 +219,9 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
                 _detailRow('Offer per Mile', '${_usd(offerPerMile)}/mi'),
                 _detailRow('Fuel Price Used',
                     _usd(_toNum(trip['fuel_price_used']))),
+                if (contactName.isNotEmpty) _detailRow('Contact', contactLine),
+                if (contactPhone.isNotEmpty) _detailRow('Phone', contactPhone),
+                
                 _detailRow('Deadhead', '${_toNum(trip['deadhead_miles']).round()} mi'),
                 _detailRow('Loaded', '${_toNum(trip['loaded_miles']).round()} mi'),
               ],

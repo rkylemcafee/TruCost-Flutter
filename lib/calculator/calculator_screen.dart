@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../engine/trucost_engine.dart';
 import '../services/fuel_price_service.dart';
+import '../contacts/contacts_screen.dart';
 
 class CalculatorScreen extends StatefulWidget {
   final double? initialDeadhead;
@@ -43,6 +44,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   final FuelPriceService _fuelSvc = FuelPriceService();
   String? _truckUnitId;
   String? _trailerUnitId;
+  Map<String, dynamic>? _selectedBroker;
 
   bool _loading = true;
   bool _saving = false;
@@ -238,7 +240,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
             style: const TextStyle(fontSize: 14),
             decoration: const InputDecoration(
               labelText: 'Trip Name',
-              hintText: 'e.g. Cocoa, FL to Miami, FL',
+              hintText: 'e.g. Cocoa to Miami',
               border: OutlineInputBorder(),
             ),
           ),
@@ -269,6 +271,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         'trip_name': tripName,
         'truck_unit_id': _truckUnitId,
         'trailer_unit_id': _trailerUnitId,
+        'contact_id': _selectedBroker?['id'],
         'origin': _origin.isNotEmpty ? _origin : null,
         'destination': _destination.isNotEmpty ? _destination : null,
         'trip_date': DateTime.now().toIso8601String().substring(0, 10),
@@ -277,10 +280,10 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         'total_miles': deadhead + loaded,
         'gross_pay': gross,
         'fuel_price_used': _fuelPrice,
+        'estimated_fuel_cost': r.totalFuelCost,
         'lease_status_at_time': _carrierCutPct > 0 ? 'leased' : 'independent',
         'carrier_cut_pct_at_time': _carrierCutPct,
         'estimated_net': r.netToOperator,
-        'estimated_fuel_cost': r.totalFuelCost,
         'status': 'saved',
         'estimate_json': {
           'grossPay': r.grossPay,
@@ -367,7 +370,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                 labelText: 'Gross Pay',
                 prefixText: '\$ ',
                 border: OutlineInputBorder(),
-                hintText: 'Enter Amount',
               ),
             ),
             const SizedBox(height: 16),
@@ -462,6 +464,35 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
               const SizedBox(height: 24),
               _buildResults(r),
               const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await Navigator.push<Map<String, dynamic>>(
+                          context,
+                          MaterialPageRoute(builder: (_) => const ContactsScreen(pickMode: true)),
+                        );
+                        if (picked != null) setState(() => _selectedBroker = picked);
+                      },
+                      icon: const Icon(Icons.person_add, size: 18),
+                      label: Text(
+                        _selectedBroker != null
+                            ? '${_selectedBroker!['name']}${_selectedBroker!['company'] != null && _selectedBroker!['company'].toString().isNotEmpty ? ' - ${_selectedBroker!['company']}' : ''}'
+                            : 'Pick Contact (optional)',
+                        style: const TextStyle(fontSize: 13),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  if (_selectedBroker != null)
+                    IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () => setState(() => _selectedBroker = null),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
