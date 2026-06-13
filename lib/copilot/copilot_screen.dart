@@ -340,6 +340,12 @@ class _CopilotScreenState extends State<CopilotScreen> {
   }
 
   void _handleFinalTranscript(String raw) {
+    // STT delivers the final transcript through two paths on some devices:
+    // the 'done' status (→ _onSessionEnded) and the final onResult. On this
+    // hardware 'done' fires FIRST, before _isThinking is set, so both paths
+    // would each call _send() → two replies (the "ping-pong"). Guard here so
+    // whichever fires first wins and the second is a no-op.
+    if (_isThinking) return;
     final words = raw.trim();
     if (words.isEmpty) {
       if (_handsFree) _scheduleRelisten();
@@ -374,6 +380,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
   }
 
   Future<void> _send() async {
+    if (_isThinking) return; // a turn is already in flight — no double-send
     final text = _textCtrl.text.trim();
     if (text.isEmpty) return;
 
