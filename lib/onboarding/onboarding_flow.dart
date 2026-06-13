@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'copilot_name_step.dart';
 import 'setup_step.dart';
 import 'carrier_step.dart';
 import 'rig_step.dart';
@@ -6,11 +7,11 @@ import 'defaults_step.dart';
 import 'complete_step.dart';
 
 /// Wizard container — manages step navigation and progress bar.
-/// Skips the Carrier step for independent operators.
+/// Starts with naming the co-pilot, then skips the Carrier step for independents.
 ///
 /// Goes in: lib/onboarding/onboarding_flow.dart
 
-enum _Step { setup, carrier, rig, defaults, complete }
+enum _Step { copilotName, setup, carrier, rig, defaults, complete }
 
 class OnboardingFlow extends StatefulWidget {
   final VoidCallback onComplete;
@@ -21,8 +22,10 @@ class OnboardingFlow extends StatefulWidget {
 }
 
 class _OnboardingFlowState extends State<OnboardingFlow> {
-  _Step _step = _Step.setup;
+  _Step _step = _Step.copilotName;
   bool _isLeased = true;
+
+  void _afterCopilotName() => setState(() => _step = _Step.setup);
 
   void _afterSetup(bool isLeased) {
     setState(() {
@@ -38,6 +41,8 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
   void _back() {
     setState(() {
       switch (_step) {
+        case _Step.setup:
+          _step = _Step.copilotName;
         case _Step.carrier:
           _step = _Step.setup;
         case _Step.rig:
@@ -54,19 +59,20 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
 
   @override
   Widget build(BuildContext context) {
-    final totalSteps = _isLeased ? 5 : 4;
+    final totalSteps = _isLeased ? 6 : 5;
     final currentIdx = switch (_step) {
-      _Step.setup => 0,
-      _Step.carrier => 1,
-      _Step.rig => _isLeased ? 2 : 1,
-      _Step.defaults => _isLeased ? 3 : 2,
-      _Step.complete => _isLeased ? 4 : 3,
+      _Step.copilotName => 0,
+      _Step.setup => 1,
+      _Step.carrier => 2,
+      _Step.rig => _isLeased ? 3 : 2,
+      _Step.defaults => _isLeased ? 4 : 3,
+      _Step.complete => _isLeased ? 5 : 4,
     };
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Setup'),
-        leading: _step != _Step.setup
+        leading: _step != _Step.copilotName
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
                 onPressed: _back,
@@ -83,6 +89,7 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
               child: switch (_step) {
+                _Step.copilotName => CopilotNameStep(key: const ValueKey('copilotName'), onNext: _afterCopilotName),
                 _Step.setup => SetupStep(key: const ValueKey('setup'), onNext: _afterSetup),
                 _Step.carrier => CarrierStep(key: const ValueKey('carrier'), onNext: _afterCarrier),
                 _Step.rig => RigStep(key: const ValueKey('rig'), onNext: _afterRig),

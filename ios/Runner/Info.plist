@@ -30,8 +30,12 @@
 	<string>TruCost needs camera access to photograph your rig</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>TruCost uses your location to calculate deadhead miles</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>TruCost needs the microphone so you can talk to your Co-Pilot hands-free while driving.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TruCost needs photo access to select a rig photo</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>TruCost uses speech recognition to understand what you say to your Co-Pilot.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

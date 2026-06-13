@@ -4,6 +4,22 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 const List<String> _contactTypes = ['Direct Customer', 'Broker', 'Agent', 'Escort'];
 
+/// Lower-48 states, keyed by abbreviation (what we store), value is display name.
+const Map<String, String> _usStates = {
+  'AL': 'Alabama', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
+  'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida',
+  'GA': 'Georgia', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana',
+  'IA': 'Iowa', 'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana',
+  'ME': 'Maine', 'MD': 'Maryland', 'MA': 'Massachusetts', 'MI': 'Michigan',
+  'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri', 'MT': 'Montana',
+  'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+  'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota',
+  'OH': 'Ohio', 'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania',
+  'RI': 'Rhode Island', 'SC': 'South Carolina', 'SD': 'South Dakota', 'TN': 'Tennessee',
+  'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont', 'VA': 'Virginia',
+  'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming',
+};
+
 class ContactsScreen extends StatefulWidget {
   final bool pickMode;
   const ContactsScreen({super.key, this.pickMode = false});
@@ -77,6 +93,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final notesCtrl = TextEditingController(text: existing?['notes'] ?? '');
     String selectedType = existing?['contact_type'] ?? 'Broker';
     int selectedStars = existing?['star_rating'] ?? 0;
+    List<String> selectedStates =
+        (existing?['best_load_states'] as List?)?.cast<String>() ?? <String>[];
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -127,6 +145,37 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 ),
                 const SizedBox(height: 8),
                 TextField(controller: notesCtrl, decoration: const InputDecoration(labelText: 'Notes', isDense: true), maxLines: 2),
+                const SizedBox(height: 10),
+                InkWell(
+                  onTap: () async {
+                    final result = await Navigator.push<List<String>>(
+                      ctx,
+                      MaterialPageRoute(
+                        builder: (_) => _StatePickerScreen(initial: selectedStates),
+                      ),
+                    );
+                    if (result != null) setDialogState(() => selectedStates = result);
+                  },
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Best Load States',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      suffixIcon: Icon(Icons.map_outlined, size: 20),
+                    ),
+                    child: Text(
+                      selectedStates.isEmpty
+                          ? 'None set — tap to choose'
+                          : (selectedStates.length >= _usStates.length
+                              ? 'All 48 states'
+                              : selectedStates.join(', ')),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: selectedStates.isEmpty ? Colors.grey[500] : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -148,6 +197,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   'notes': notesCtrl.text.trim(),
                   'contact_type': selectedType,
                   'star_rating': selectedStars,
+                  'best_load_states': selectedStates,
                 });
               },
               child: const Text('Save'),
@@ -272,6 +322,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final state = c['state'] ?? '';
     final type = c['contact_type'] ?? 'Broker';
     final stars = c['star_rating'] ?? 0;
+    final loadStates = (c['best_load_states'] as List?)?.cast<String>() ?? <String>[];
+    final loadStatesLabel = loadStates.isEmpty
+        ? ''
+        : (loadStates.length >= 48 ? 'All 48' : loadStates.join(', '));
     final location = [city, state].where((s) => s.isNotEmpty).join(', ');
 
     return Card(
@@ -304,6 +358,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
             if (company.isNotEmpty) Text(company, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             if (location.isNotEmpty) Text(location, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
             if (phone.isNotEmpty) Text(phone, style: TextStyle(fontSize: 12, color: Colors.blue[700])),
+            if (loadStatesLabel.isNotEmpty)
+              Text('Loads: $loadStatesLabel',
+                  style: TextStyle(fontSize: 11, color: Colors.blueGrey[400], fontWeight: FontWeight.w500)),
             if (stars > 0)
               Row(
                 children: List.generate(5, (i) => Icon(
@@ -329,6 +386,136 @@ class _ContactsScreenState extends State<ContactsScreen> {
         onTap: widget.pickMode
             ? () => Navigator.pop(context, c)
             : () => _addOrEditContact(existing: c),
+      ),
+    );
+  }
+}
+
+
+class _StatePickerScreen extends StatefulWidget {
+  final List<String> initial;
+  const _StatePickerScreen({required this.initial});
+  @override
+  State<_StatePickerScreen> createState() => _StatePickerScreenState();
+}
+
+class _StatePickerScreenState extends State<_StatePickerScreen> {
+  late Set<String> _selected;
+  final _searchCtrl = TextEditingController();
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = {...widget.initial};
+    _searchCtrl.addListener(() => setState(() => _query = _searchCtrl.text.toLowerCase()));
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  bool get _allSelected => _selected.length >= _usStates.length;
+
+  void _toggleAll() {
+    setState(() {
+      if (_allSelected) {
+        _selected.clear();
+      } else {
+        _selected = _usStates.keys.toSet();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = _usStates.entries.where((e) {
+      if (_query.isEmpty) return true;
+      return e.value.toLowerCase().contains(_query) || e.key.toLowerCase().contains(_query);
+    }).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Best Load States'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, _selected.toList()..sort()),
+            child: const Text('Done',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16)),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Search states...',
+                prefixIcon: const Icon(Icons.search),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                isDense: true,
+              ),
+            ),
+          ),
+          CheckboxListTile(
+            value: _allSelected,
+            onChanged: (_) => _toggleAll(),
+            controlAffinity: ListTileControlAffinity.leading,
+            activeColor: Colors.blueGrey[700],
+            title: const Text('All 48 States', style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text('${_selected.length} selected'),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView(
+              children: entries.map((e) {
+                final sel = _selected.contains(e.key);
+                return CheckboxListTile(
+                  value: sel,
+                  onChanged: (v) => setState(() {
+                    if (v == true) {
+                      _selected.add(e.key);
+                    } else {
+                      _selected.remove(e.key);
+                    }
+                  }),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  activeColor: Colors.blueGrey[700],
+                  dense: true,
+                  title: Text(e.value),
+                  secondary: Text(e.key,
+                      style: TextStyle(color: Colors.grey[500], fontWeight: FontWeight.w600)),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context, _selected.toList()..sort()),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                backgroundColor: Colors.blueGrey[700],
+                foregroundColor: Colors.white,
+              ),
+              child: Text(
+                _selected.isEmpty
+                    ? 'Save'
+                    : 'Save  (${_selected.length} state${_selected.length == 1 ? '' : 's'})',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

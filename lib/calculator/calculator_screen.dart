@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../engine/trucost_engine.dart';
 import '../services/fuel_price_service.dart';
 import '../contacts/contacts_screen.dart';
+import '../trips/load_details_screen.dart';
 
 class CalculatorScreen extends StatefulWidget {
   final double? initialDeadhead;
@@ -216,7 +217,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     FocusScope.of(context).unfocus();
   }
 
-  Future<void> _saveTrip(TripResult r) async {
+  Future<void> _saveTrip(TripResult r, {bool book = false}) async {
     final deadhead = double.tryParse(_deadheadCtrl.text) ?? 0;
     final loaded = double.tryParse(_loadedCtrl.text) ?? 0;
     final gross = double.tryParse(_grossPayCtrl.text) ?? 0;
@@ -266,7 +267,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       final user = _supabase.auth.currentUser;
       if (user == null) throw Exception('Not signed in');
 
-      await _supabase.from('trips').insert({
+     final inserted = await _supabase.from('trips').insert({
         'user_id': user.id,
         'trip_name': tripName,
         'truck_unit_id': _truckUnitId,
@@ -277,7 +278,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         'trip_date': DateTime.now().toIso8601String().substring(0, 10),
         'deadhead_miles': deadhead,
         'loaded_miles': loaded,
-        'total_miles': deadhead + loaded,
         'gross_pay': gross,
         'fuel_price_used': _fuelPrice,
         'estimated_fuel_cost': r.totalFuelCost,
@@ -290,7 +290,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           'carrierCut': r.carrierCut,
           'operatorGross': r.operatorGross,
           'totalFuelCost': r.totalFuelCost,
-          'driverCost': r.driverCost,
           'truckCost': r.truckCost,
           'trailerCost': r.trailerCost,
           'equipmentCost': r.equipmentCost,
@@ -308,15 +307,25 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           'targetHourly': r.targetHourly,
           'isWinner': r.isWinner,
         },
-      });
+      }).select('id').single();
+      final newTripId = inserted['id'].toString();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Saved: $tripName'),
-            backgroundColor: Colors.green[700],
-          ),
-        );
+     if (mounted) {
+        if (book) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => LoadDetailsScreen(tripId: newTripId),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved: $tripName'),
+              backgroundColor: Colors.green[700],
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -443,7 +452,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                   _chip('Overhead', '${_overheadPct.round()}%'),
                   _chip('Fuel', _usd(_fuelPrice)),
                   _chip('MPG', '${_emptyMpg.round()}/${_loadedMpg.round()}'),
-                  _chip('Rate', '\$${_hourlyRate.round()}/hr'),
+                  _chip('Target', '\$${_hourlyRate.round()}/hr'),
                 ],
               ),
             ),
@@ -491,6 +500,20 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                       onPressed: () => setState(() => _selectedBroker = null),
                     ),
                 ],
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _saving ? null : () => _saveTrip(r, book: true),
+                  icon: const Icon(Icons.local_shipping),
+                  label: const Text('Book This Load'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    backgroundColor: Colors.green[700],
+                    foregroundColor: Colors.white,
+                  ),
+                ),
               ),
               const SizedBox(height: 8),
               SizedBox(
@@ -579,7 +602,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                 _section('Costs'),
                 _line('Fuel (empty)', _usd(r.emptyFuelCost)),
                 _line('Fuel (loaded)', _usd(r.loadedFuelCost)),
-                _line('Driver pay', _usd(r.driverCost)),
                 _line(_truckLabel, _usd(r.truckCost)),
                 _line(_trailerLabel, _usd(r.trailerCost)),
                 _line('Tolls / Other', _usd(r.tollsCost)),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'load_details_screen.dart';
 
 class SavedTripsScreen extends StatefulWidget {
   const SavedTripsScreen({super.key});

@@ -1,10 +1,20 @@
 // trucost_engine.dart
 //
-// Pure-Dart TruCost engine. v2.0 model: equipment cost is spread over the
-// operation's ANNUAL WORKING HOURS.
+// Pure-Dart TruCost engine.
 //
-//   equipment cost for this trip
-//     = annual cost (depreciation OR payments) x (trip hours / annual hours)
+// THE MODEL (the "ugly truth"):
+//   Real costs come out of the load — nothing is pretended away:
+//     fuel + equipment (the truck/trailer nut) + tolls + overhead
+//   Equipment cost is the iron's annual cost spread over the operator's
+//   ANNUAL WORKING HOURS, then charged for this trip's hours:
+//     equipment for trip = annual cost (depreciation OR payments)
+//                          x (trip hours / annual hours)
+//   What's LEFT after carrier cut and all real costs is the operator's
+//   take-home. Divide by hours and that's the real $/hr.
+//
+//   The operator's hourly rate is the TARGET BAR they set in onboarding,
+//   NOT a wage we subtract. A load "wins" when real $/hr clears that bar.
+//   The bar is always the operator's own number — never hard-coded.
 //
 // Suggested location: lib/engine/trucost_engine.dart
 
@@ -59,7 +69,7 @@ class TruCostInputs {
   final double emptyMpg;
   final double loadedMpg;
   final double dieselPricePerGallon;
-  final double hourlyRate;
+  final double hourlyRate; // operator's TARGET $/hr (the bar), not a wage
   final double loadUnloadHours;
   final UnitCost truck;
   final UnitCost trailer;
@@ -97,15 +107,14 @@ class TripResult {
   final double emptyFuelCost;
   final double loadedFuelCost;
   final double totalFuelCost;
-  final double driverCost;
   final double truckCost;
   final double trailerCost;
   final double equipmentCost;
   final double tollsCost;
   final double overheadCost;
   final double totalCosts;
-  final double netToOperator;
-  final double effectiveHourlyRate;
+  final double netToOperator; // operator take-home after all real costs
+  final double effectiveHourlyRate; // real take-home per hour
   final double costPerMile;
   final double totalMiles;
   final double deadheadMiles;
@@ -118,7 +127,7 @@ class TripResult {
   final double offerPerMile;
   final double minimumGrossNeeded;
   final double minimumPerMile;
-  final double targetHourly;
+  final double targetHourly; // the operator's own bar
 
   const TripResult({
     required this.grossPay,
@@ -127,7 +136,6 @@ class TripResult {
     required this.emptyFuelCost,
     required this.loadedFuelCost,
     required this.totalFuelCost,
-    required this.driverCost,
     required this.truckCost,
     required this.trailerCost,
     required this.equipmentCost,
@@ -151,6 +159,7 @@ class TripResult {
     required this.targetHourly,
   });
 
+  /// A winner clears the operator's own hourly bar.
   bool get isWinner => effectiveHourlyRate >= targetHourly;
 }
 
@@ -175,10 +184,7 @@ class TruCostEngine {
     final loadedFuelCost = loadedGallons * i.dieselPricePerGallon;
     final totalFuelCost = emptyFuelCost + loadedFuelCost;
 
-    // Driver pay
-    final driverCost = totalHours * i.hourlyRate;
-
-    // Equipment: trip's share of annual hours
+    // Equipment: the iron's annual nut, this trip's share of annual hours
     final annualHours = i.annualWorkingHours <= 0 ? 1.0 : i.annualWorkingHours;
     final hoursFraction = totalHours / annualHours;
     final truckCost = i.truck.annualCost * hoursFraction;
@@ -188,19 +194,21 @@ class TruCostEngine {
     // Tolls
     final tollsCost = i.tollsOtherCost < 0 ? 0.0 : i.tollsOtherCost;
 
-    // Costs
-    final baseCosts = totalFuelCost + driverCost + equipmentCost + tollsCost;
+    // Costs — fuel + equipment + tolls, then overhead on top.
+    // The operator's own driving time is NOT a cost here; it's what the
+    // take-home pays for. The hourly target is a bar, applied below.
+    final baseCosts = totalFuelCost + equipmentCost + tollsCost;
     final overheadCost = baseCosts * (i.overheadPercent < 0 ? 0.0 : i.overheadPercent);
     final totalCosts = baseCosts + overheadCost;
 
-    // Revenue
+    // Revenue → take-home
     final operatorShare = i.operatorSharePercent;
     final operatorGross = i.grossPay * operatorShare;
     final netToOperator = operatorGross - totalCosts;
     final effectiveHourlyRate = totalHours > 0 ? netToOperator / totalHours : 0.0;
     final costPerMile = totalMiles > 0 ? totalCosts / totalMiles : 0.0;
 
-    // Minimum gross to hit target hourly
+    // Minimum gross to clear the operator's hourly bar as take-home
     final targetEarnings = i.hourlyRate * totalHours;
     final minimumNetNeeded = totalCosts + targetEarnings;
     final minimumGrossNeeded =
@@ -214,7 +222,6 @@ class TruCostEngine {
       emptyFuelCost: emptyFuelCost,
       loadedFuelCost: loadedFuelCost,
       totalFuelCost: totalFuelCost,
-      driverCost: driverCost,
       truckCost: truckCost,
       trailerCost: trailerCost,
       equipmentCost: equipmentCost,
