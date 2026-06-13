@@ -30,6 +30,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
   bool _handsFree = false; // conversation mode: keep the mic cycling
   bool _starting = false;  // guard against double-starting the recognizer
   bool _speaking = false;  // TTS owns the audio — suppress relisten while true
+  bool _turnHandled = false; // this listen session's transcript already sent?
   bool _parkedAck = false; // shown the "be parked" reminder this session?
   bool _resumeDialogOpen = false; // sleep popup currently showing?
 
@@ -313,6 +314,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
         return;
       }
       setState(() => _listening = true);
+      _turnHandled = false; // fresh session — a new transcript may be consumed
       await _stt.listen(
         onResult: (result) {
           debugPrint('STT result: "${result.recognizedWords}" '
@@ -340,17 +342,20 @@ class _CopilotScreenState extends State<CopilotScreen> {
   }
 
   void _handleFinalTranscript(String raw) {
-    // STT delivers the final transcript through two paths on some devices:
-    // the 'done' status (→ _onSessionEnded) and the final onResult. On this
-    // hardware 'done' fires FIRST, before _isThinking is set, so both paths
-    // would each call _send() → two replies (the "ping-pong"). Guard here so
-    // whichever fires first wins and the second is a no-op.
-    if (_isThinking) return;
+    // STT delivers the final transcript through two paths on some devices: the
+    // 'done' status (→ _onSessionEnded) and the final onResult. On this
+    // hardware the 'done' path can fire, run the whole LLM round-trip, and
+    // start speaking BEFORE the late final=true result arrives — so _isThinking
+    // is already false again and can't dedupe. Instead we tie the dedupe to the
+    // listen session: whichever trigger lands first consumes it; the duplicate
+    // is ignored until _startListening opens a fresh session.
+    if (_turnHandled) return;
     final words = raw.trim();
     if (words.isEmpty) {
       if (_handsFree) _scheduleRelisten();
       return;
     }
+    _turnHandled = true;
     _resetIdle();
     _send();
   }
