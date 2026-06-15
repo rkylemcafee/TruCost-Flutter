@@ -33,6 +33,7 @@ Rules:
 - When the driver wants to remove or delete a truck or trailer, USE delete_unit (a soft delete it can be brought back), identified by its number.
 - When the driver wants to call someone, USE make_call to open the phone dialer.
 - When the driver wants to text someone, USE send_text to open Messages.
+- When the driver wants to email someone, USE send_email to open their mail app. Write a clear subject and a short, professional body — you can speak the draft out loud first so the driver can okay it. Use the contact's saved email from the CONTACTS list below; if they have no email on file, ask the driver for it.
 - No markdown bold (**) in responses — this is for voice/mobile display.
 
 Keep responses SHORT. No bullet points, no lists — talk naturally.`;
@@ -138,6 +139,20 @@ const TOOLS = [
         contact_name: { type: "string", description: "Name of the contact" },
       },
       required: ["phone"],
+    },
+  },
+  {
+    name: "send_email",
+    description: "Open the driver's mail app with a drafted email to a contact. Use when the driver wants to email a broker, agent, or customer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        email: { type: "string", description: "Recipient email address" },
+        subject: { type: "string", description: "Email subject line" },
+        body: { type: "string", description: "Email body text" },
+        contact_name: { type: "string", description: "Name of the contact" },
+      },
+      required: ["email", "subject", "body"],
     },
   },
   {
@@ -777,10 +792,37 @@ Deno.serve(async (req) => {
       console.error("Fleet query error:", e);
     }
 
+    let contactsContext = "";
+    try {
+      if (currentUser) {
+        const { data: contacts } = await supabase
+          .from("contacts")
+          .select("name, company, phone, email, city, state, contact_type, star_rating, best_load_states")
+          .eq("user_id", currentUser.id)
+          .order("name", { ascending: true });
+        if (contacts && contacts.length > 0) {
+          const lines = contacts.map((c: any) => {
+            const co = c.company ? ` @ ${c.company}` : "";
+            const ph = c.phone ? ` | Ph: ${c.phone}` : "";
+            const em = c.email ? ` | Email: ${c.email}` : " | Email: none on file";
+            const loc = c.city || c.state ? ` | ${[c.city, c.state].filter(Boolean).join(", ")}` : "";
+            const type = c.contact_type ? ` | ${c.contact_type}` : "";
+            const rating = c.star_rating ? ` | ${c.star_rating}★` : "";
+            const states = Array.isArray(c.best_load_states) && c.best_load_states.length
+              ? ` | Good loads: ${c.best_load_states.join(", ")}` : "";
+            return `- ${c.name}${co}${ph}${em}${loc}${type}${rating}${states}`;
+          });
+          contactsContext = `\n\nDRIVER'S CONTACTS (brokers, agents, customers):\n${lines.join("\n")}`;
+        }
+      }
+    } catch (e) {
+      console.error("Contacts query error:", e);
+    }
+
     const dp = driverProfile || {};
     const nameContext = `\n\nDRIVER'S NAME: ${driverName || "driver"}\nYOUR NAME: ${copilotName || "Co-Pilot"}. That is your name — answer to it naturally. If the driver calls you by a nickname or a slightly different name, just roll with it; never correct them or insist you are called something else.\n\nDRIVER'S EQUIPMENT: Carrier cut ${dp.carrier_cut_pct || 25}%, Overhead ${dp.overhead_pct || 15}%, Fuel $${dp.fuel_price_default || 5.35}/gal, MPG ${dp.empty_mpg || 6}empty/${dp.loaded_mpg || 5}loaded, Target $${dp.hourly_rate || 50}/hr`;
 
-    const fullSystem = SYSTEM_PROMPT + nameContext + tripContext + fleetContext;
+    const fullSystem = SYSTEM_PROMPT + nameContext + tripContext + fleetContext + contactsContext;
 
     const messages: Array<{ role: string; content: any }> = [];
     if (Array.isArray(history)) {
@@ -848,6 +890,9 @@ Deno.serve(async (req) => {
         } else if (tool.name === "make_call") {
           actions.push({ type: "call", phone: tool.input.phone, contact_name: tool.input.contact_name || "" });
           result = `Phone dialer opening for ${tool.input.contact_name || tool.input.phone}.`;
+        } else if (tool.name === "send_email") {
+          actions.push({ type: "email", email: tool.input.email, subject: tool.input.subject, body: tool.input.body, contact_name: tool.input.contact_name || "" });
+          result = `Email drafted to ${tool.input.contact_name || tool.input.email}.`;
         }
         toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: result });
       }

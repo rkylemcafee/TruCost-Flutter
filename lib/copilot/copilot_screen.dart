@@ -510,6 +510,15 @@ class _CopilotScreenState extends State<CopilotScreen> {
               await launchUrl(uri);
             }
           }
+          if (action['type'] == 'email') {
+            final email = action['email'] ?? '';
+            final subject = Uri.encodeComponent(action['subject'] ?? '');
+            final body = Uri.encodeComponent(action['body'] ?? '');
+            final uri = Uri.parse('mailto:$email?subject=$subject&body=$body');
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri);
+            }
+          }
         }
       }
     } catch (e) {
