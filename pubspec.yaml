@@ -35,3 +35,12 @@ flutter:
 
   assets:
     - assets/images/trucost_logo.jpg
+    - assets/copilot/f1.png
+    - assets/copilot/f2.png
+    - assets/copilot/f3.png
+    - assets/copilot/f4.png
+    - assets/copilot/m1.png
+    - assets/copilot/m2.png
+    - assets/copilot/m3.png
+    - assets/copilot/m4.png
+    

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'copilot_avatar.dart';
 
 /// Lets the driver browse every on-device voice, preview it, and save their
 /// pick to their profile. No API calls — uses the free native iOS/Android
@@ -21,6 +22,8 @@ class VoiceSettingsScreen extends StatefulWidget {
 class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   final _supabase = Supabase.instance.client;
   final FlutterTts _tts = FlutterTts();
+  final TextEditingController _nameCtrl = TextEditingController();
+  final TextEditingController _driverCtrl = TextEditingController();
 
   List<Map<String, String>> _allVoices = [];
   List<Map<String, String>> _shown = [];
@@ -32,6 +35,8 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   bool _loading = true;
   bool _saving = false;
   String _copilotName = 'Co-Pilot';
+  int _memoryDays = 1; // 0 = no memory; how far back the co-pilot recalls
+  String _copilotAvatar = 'initial'; // 'initial' or a face key (f1..f3/m1..m3)
 
   // What the driver hears when previewing — keep it on-brand and short.
   String get _sample =>
@@ -58,10 +63,14 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
       if (user != null) {
         final p = await _supabase
             .from('profiles')
-            .select('copilot_name, copilot_voice_name, copilot_voice_locale')
+            .select('copilot_name, preferred_name, copilot_avatar, copilot_memory_days, copilot_voice_name, copilot_voice_locale')
             .eq('user_id', user.id)
             .single();
-        _copilotName = (p['copilot_name'] ?? 'Co-Pilot').toString();
+        _copilotName = (p['copilot_name'] ?? 'Bob').toString();
+        _nameCtrl.text = _copilotName;
+        _driverCtrl.text = (p['preferred_name'] ?? '').toString();
+        _copilotAvatar = (p['copilot_avatar'] ?? 'initial').toString();
+        _memoryDays = (p['copilot_memory_days'] ?? 1) as int;
         final savedName = (p['copilot_voice_name'] ?? '').toString();
         final savedLocale = (p['copilot_voice_locale'] ?? '').toString();
         if (savedName.isNotEmpty && savedLocale.isNotEmpty) {
@@ -72,6 +81,7 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
     } catch (_) {
       // no saved prefs yet — fine
     }
+    if (_nameCtrl.text.trim().isEmpty) _nameCtrl.text = 'Bob';
 
     // Pull every voice the device exposes.
     try {
@@ -164,16 +174,28 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   }
 
   Future<void> _save() async {
-    if (_selectedName == null || _selectedLocale == null) return;
     setState(() => _saving = true);
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) throw Exception('Not signed in');
 
-      await _supabase.from('profiles').update({
-        'copilot_voice_name': _selectedName,
-        'copilot_voice_locale': _selectedLocale,
-      }).eq('user_id', user.id);
+      final copilotName =
+          _nameCtrl.text.trim().isEmpty ? 'Bob' : _nameCtrl.text.trim();
+      final driverName = _driverCtrl.text.trim();
+
+      final update = <String, dynamic>{
+        'copilot_name': copilotName,
+        'preferred_name': driverName.isEmpty ? null : driverName,
+        'copilot_avatar': _copilotAvatar,
+        'copilot_memory_days': _memoryDays,
+      };
+      // Only touch the voice fields if a voice is actually selected.
+      if (_selectedName != null && _selectedLocale != null) {
+        update['copilot_voice_name'] = _selectedName;
+        update['copilot_voice_locale'] = _selectedLocale;
+      }
+
+      await _supabase.from('profiles').update(update).eq('user_id', user.id);
 
       await _tts.stop();
       if (mounted) Navigator.pop(context, true); // signal caller to re-apply
@@ -190,16 +212,18 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   @override
   void dispose() {
     _tts.stop();
+    _nameCtrl.dispose();
+    _driverCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final canSave = _selectedName != null && !_saving;
+    final canSave = !_saving;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Co-Pilot Voice'),
+        title: const Text('Co-Pilot Settings'),
         actions: [
           Row(
             children: [
@@ -219,6 +243,7 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
+                _identityCard(),
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
@@ -266,7 +291,7 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
                                 width: 18, height: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                             : const Icon(Icons.check),
-                        label: Text(_saving ? 'Saving...' : 'Use This Voice'),
+                        label: Text(_saving ? 'Saving...' : 'Save'),
                         style: ElevatedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 16),
                           backgroundColor: Colors.blueGrey[700],
@@ -279,6 +304,121 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _identityCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Co-pilot name',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _nameCtrl,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+              hintText: 'e.g. Bob',
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text('Your name (what your co-pilot calls you)',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _driverCtrl,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(
+              hintText: 'e.g. Kyle',
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text('Co-pilot face',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 64,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final key in const ['initial', 'f1', 'f2', 'f3', 'f4', 'm1', 'm2', 'm3', 'm4'])
+                  _avatarOption(key),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          const Text('Memory',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 2),
+          Text(
+            _memoryDays == 0
+                ? 'Starts every chat fresh — no memory of past conversations.'
+                : 'Remembers the last ${_memoryDays == 1 ? 'day' : '$_memoryDays days'} of conversations.',
+            style: TextStyle(fontSize: 12.5, color: Colors.grey[600]),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Slider(
+                  value: _memoryDays.toDouble(),
+                  min: 0,
+                  max: 7,
+                  divisions: 7,
+                  label: _memoryDays == 0 ? 'Off' : '$_memoryDays d',
+                  activeColor: Colors.blueGrey[700],
+                  onChanged: (v) => setState(() => _memoryDays = v.round()),
+                ),
+              ),
+              SizedBox(
+                width: 44,
+                child: Text(
+                  _memoryDays == 0 ? 'Off' : '${_memoryDays}d',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Divider(),
+        ],
+      ),
+    );
+  }
+
+  Widget _avatarOption(String key) {
+    final selected = key == _copilotAvatar;
+    final nameForInitial =
+        _nameCtrl.text.trim().isEmpty ? 'Bob' : _nameCtrl.text.trim();
+    return GestureDetector(
+      onTap: () => setState(() => _copilotAvatar = key),
+      child: Container(
+        margin: const EdgeInsets.only(right: 12),
+        padding: const EdgeInsets.all(2.5),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected ? Colors.blueGrey[700]! : Colors.transparent,
+            width: 2.5,
+          ),
+        ),
+        child: CopilotAvatar(
+          name: nameForInitial,
+          avatarKey: key,
+          size: 52,
+        ),
+      ),
     );
   }
 

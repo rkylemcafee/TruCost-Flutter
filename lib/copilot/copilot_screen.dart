@@ -8,6 +8,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'package:audio_session/audio_session.dart';
 import 'copilot_history_screen.dart';
 import 'voice_settings_screen.dart';
+import 'copilot_avatar.dart';
 
 class CopilotScreen extends StatefulWidget {
   const CopilotScreen({super.key});
@@ -37,8 +38,13 @@ class _CopilotScreenState extends State<CopilotScreen> {
   Timer? _idleTimer; // auto-shuts hands-free off after 90s of silence
 
   final List<Map<String, String>> _messages = [];
+  // Past conversations from the last N days, loaded once at startup so the
+  // co-pilot "remembers" across sessions. Sent as hidden context, not shown.
+  final List<Map<String, String>> _priorContext = [];
   String _driverName = 'driver';
-  String _copilotName = 'Co-Pilot';
+  String _copilotName = 'Bob';
+  String _copilotAvatar = 'initial'; // 'initial' or a face key (f1..f3/m1..m3)
+  int _memoryDays = 1; // 0 = no memory; how far back the co-pilot recalls
   String _sessionId = const Uuid().v4();
 
   // Hands-free turns itself off after this much quiet (nobody talking).
@@ -167,9 +173,10 @@ class _CopilotScreenState extends State<CopilotScreen> {
     ));
     if (changed == true) {
       await _setupTts();
+      await _loadNames();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Voice updated.')),
+          const SnackBar(content: Text('Co-Pilot settings updated.')),
         );
       }
     }
@@ -305,10 +312,17 @@ class _CopilotScreenState extends State<CopilotScreen> {
     _starting = true;
     try {
       await _tts.stop();
+      // Fully reset the recognizer before each listen. iOS can leave it wedged
+      // after a 'permanent' error_no_match — which is exactly why it would go
+      // deaf after the first turn. cancel() clears that so the new session
+      // starts clean instead of reopening the mic on a jammed recognizer.
+      try {
+        await _stt.cancel();
+      } catch (_) {}
       try {
         await _audioSession?.setActive(true);
       } catch (_) {}
-      await Future.delayed(const Duration(milliseconds: 300));
+      await Future.delayed(const Duration(milliseconds: 350));
       if (!mounted) {
         _starting = false;
         return;
@@ -327,7 +341,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
           }
         },
         listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 4),
+        pauseFor: const Duration(seconds: 6),
         listenOptions: SpeechListenOptions(
           partialResults: true,
           cancelOnError: false,
@@ -364,12 +378,51 @@ class _CopilotScreenState extends State<CopilotScreen> {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) return;
-      final p = await _supabase.from('profiles').select('preferred_name, copilot_name').eq('user_id', user.id).single();
+      final p = await _supabase.from('profiles').select('preferred_name, copilot_name, copilot_avatar, copilot_memory_days').eq('user_id', user.id).single();
       setState(() {
         _driverName = p['preferred_name'] ?? 'driver';
-        _copilotName = p['copilot_name'] ?? 'Co-Pilot';
+        _copilotName = p['copilot_name'] ?? 'Bob';
+        _copilotAvatar = (p['copilot_avatar'] ?? 'initial').toString();
+        _memoryDays = (p['copilot_memory_days'] ?? 1) as int;
       });
+      await _loadPriorContext();
     } catch (_) {}
+  }
+
+  // Pull the last _memoryDays of conversation so the co-pilot has continuity
+  // across sessions. Capped at the 30 most recent messages so we don't bloat
+  // every request. Loaded once at startup; not shown in the chat UI.
+  Future<void> _loadPriorContext() async {
+    _priorContext.clear();
+    if (_memoryDays <= 0) return;
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return;
+      final since = DateTime.now()
+          .toUtc()
+          .subtract(Duration(days: _memoryDays))
+          .toIso8601String();
+      final data = await _supabase
+          .from('copilot_messages')
+          .select('role, content, created_at')
+          .eq('user_id', user.id)
+          .gte('created_at', since)
+          .order('created_at', ascending: true);
+
+      final all = <Map<String, String>>[];
+      for (final m in data as List) {
+        final role = (m['role'] ?? '').toString();
+        final content = (m['content'] ?? '').toString();
+        if (content.isEmpty) continue;
+        if (role != 'user' && role != 'assistant') continue;
+        all.add({'role': role, 'content': content});
+      }
+      // Keep only the most recent 30 messages.
+      final trimmed = all.length > 30 ? all.sublist(all.length - 30) : all;
+      _priorContext
+        ..clear()
+        ..addAll(trimmed);
+    } catch (_) {/* no prior context — fine */}
   }
 
   void _scrollToBottom() {
@@ -400,13 +453,16 @@ class _CopilotScreenState extends State<CopilotScreen> {
     _scrollToBottom();
 
     try {
+      final outgoingHistory = <Map<String, String>>[
+        ..._priorContext,
+        if (_messages.length > 1) ..._messages.sublist(0, _messages.length - 1),
+      ];
+
       final response = await _supabase.functions.invoke(
         'copilot',
         body: {
           'message': text,
-          'history': _messages.length > 1
-              ? _messages.sublist(0, _messages.length - 1)
-              : [],
+          'history': outgoingHistory,
           'driverName': _driverName,
           'copilotName': _copilotName,
           'session_id': _sessionId,
@@ -524,7 +580,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.smart_toy, size: 64, color: Colors.blueGrey[200]),
+                        CopilotAvatar(name: _copilotName, avatarKey: _copilotAvatar, size: 64),
                         const SizedBox(height: 16),
                         Text('Ask $_copilotName about any load',
                             style: TextStyle(fontSize: 16, color: Colors.grey[500])),
@@ -684,11 +740,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
         mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         children: [
           if (!isUser) ...[
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: Colors.blueGrey[100],
-              child: const Icon(Icons.smart_toy, size: 18, color: Colors.blueGrey),
-            ),
+            CopilotAvatar(name: _copilotName, avatarKey: _copilotAvatar, size: 32),
             const SizedBox(width: 8),
           ],
           Flexible(
@@ -725,11 +777,7 @@ class _CopilotScreenState extends State<CopilotScreen> {
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: Colors.blueGrey[100],
-            child: const Icon(Icons.smart_toy, size: 18, color: Colors.blueGrey),
-          ),
+          CopilotAvatar(name: _copilotName, avatarKey: _copilotAvatar, size: 32),
           const SizedBox(width: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
