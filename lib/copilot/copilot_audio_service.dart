@@ -54,9 +54,18 @@ class CopilotAudioService {
 
     // Default voices set by caller after profile load if needed
 
-    stt.initialize(
-      onError: (e) => onSttError(e.toString()),
-      onStatus: (s) => onSttStatus(s),
+    await stt.initialize(
+      onError: (e) {
+        _isListening = false; // recognizer stopped on error — release the latch
+        onSttError(e.toString());
+      },
+      onStatus: (s) {
+        // iOS/Android often end a turn with a status ('done'/'notListening')
+        // and NO finalResult. Clear _isListening here too, or the guard in
+        // startListening() stays latched and the mic goes deaf after that turn.
+        if (s == 'done' || s == 'notListening') _isListening = false;
+        onSttStatus(s);
+      },
     );
   }
 
@@ -106,6 +115,7 @@ class CopilotAudioService {
 
   Future<void> stopListening() async {
     await stt.stop();
+    _isListening = false;
   }
 
   Future<void> startListening({
@@ -148,6 +158,7 @@ class CopilotAudioService {
       );
     } catch (e) {
       debugPrint('STT listen threw: $e');
+      _isListening = false; // failed to start — don't leave the flag latched
     } finally {
       _isStarting = false;
     }
