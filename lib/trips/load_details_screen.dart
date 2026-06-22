@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'state_fuel_screen.dart';
 
 /// The load record for one trip — used to BOOK a load and to EDIT it later.
 ///
@@ -30,15 +31,19 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
   final _pickupCtrl = TextEditingController();
   final _proCtrl = TextEditingController();
   final _bolCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
   final _proFocus = FocusNode();
 
   bool _loading = true;
   bool _saving = false;
   bool _booked = false;
+  bool _tripSheetSent = false;
   String? _bookedAt;
 
   // Route summary pulled defensively from whatever columns the trip has.
   String _routeLine = '';
+  String _origin = '';
+  String _destination = '';
   String _milesLine = '';
   String _moneyLine = '';
 
@@ -81,9 +86,11 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
       _brokerCtrl.text = (trip['broker_number'] ?? '').toString();
       _pickupCtrl.text = (trip['pickup_number'] ?? '').toString();
       _bolCtrl.text = (trip['bol_number'] ?? '').toString();
+      _notesCtrl.text = (trip['notes'] ?? '').toString();
 
       final existingPro = (trip['pro_number'] ?? '').toString();
       _booked = (trip['status'] ?? '').toString() == 'booked';
+      _tripSheetSent = (trip['trip_sheet_sent'] ?? false) == true;
       _bookedAt = trip['booked_at']?.toString();
 
       _buildSummary(trip);
@@ -162,6 +169,8 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
 
     final origin = pick(['origin', 'origin_city', 'from', 'start', 'pickup_city']);
     final dest = pick(['destination', 'dest_city', 'to', 'end', 'delivery_city']);
+    _origin = origin ?? '';
+    _destination = dest ?? '';
     if (origin != null && dest != null) {
       _routeLine = '$origin  →  $dest';
     } else if (origin != null) {
@@ -205,6 +214,8 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
         'pickup_number': _pickupCtrl.text.trim().isEmpty ? null : _pickupCtrl.text.trim(),
         'pro_number': proToSave,
         'bol_number': _bolCtrl.text.trim().isEmpty ? null : _bolCtrl.text.trim(),
+        'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        'trip_sheet_sent': _tripSheetSent,
       };
       if (book && !_booked) {
         update['status'] = 'booked';
@@ -252,6 +263,7 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
     _pickupCtrl.dispose();
     _proCtrl.dispose();
     _bolCtrl.dispose();
+    _notesCtrl.dispose();
     super.dispose();
   }
 
@@ -267,6 +279,26 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
               padding: const EdgeInsets.all(16),
               children: [
                 _summaryCard(),
+                if (_origin.isNotEmpty && _destination.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => StateFuelScreen(
+                          pickup: _origin,
+                          delivery: _destination,
+                          tripName: _routeLine.isNotEmpty ? _routeLine : null,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.local_gas_station),
+                    label: const Text('Fuel by State'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(46),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 20),
                 _label('Broker # (TQL#)', 'Given by the broker when you book'),
                 _field(_brokerCtrl, 'e.g. 88421307', autofocus: !_booked),
@@ -285,6 +317,27 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
                 const SizedBox(height: 16),
                 _label('BOL #', 'From the shipping order — usually added at pickup'),
                 _field(_bolCtrl, 'Optional — can be added later'),
+                const SizedBox(height: 16),
+                _label('Notes', 'Gate codes, who to ask for, anything the co-pilot jots down'),
+                TextField(
+                  controller: _notesCtrl,
+                  minLines: 2,
+                  maxLines: 5,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. Ask for Bob at the gate. Code 12463.',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Trip sheet sent'),
+                  subtitle: const Text('Flip this on once you\'ve sent the settlement / trip sheet'),
+                  value: _tripSheetSent,
+                  onChanged: (v) => setState(() => _tripSheetSent = v),
+                ),
                 const SizedBox(height: 28),
                 _primaryButton(),
                 if (_booked) ...[

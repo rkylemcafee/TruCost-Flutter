@@ -157,6 +157,10 @@ class _RigTabState extends State<RigTab> {
         TextEditingController(text: existing != null ? _numStr(existing['empty_mpg']) : '8');
     final loadedMpgCtrl =
         TextEditingController(text: existing != null ? _numStr(existing['loaded_mpg']) : '6');
+    final speedEmptyCtrl =
+        TextEditingController(text: existing != null ? _numStr(existing['speed_empty']) : '60');
+    final speedLoadedCtrl =
+        TextEditingController(text: existing != null ? _numStr(existing['speed_loaded']) : '55');
     String costMode = (existing?['cost_mode'] ?? 'owned').toString();
     String trailerSubtype = (existing?['trailer_subtype'] ?? 'flatbed').toString();
 
@@ -253,6 +257,26 @@ class _RigTabState extends State<RigTab> {
                       ),
                     ),
                   ]),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Expanded(
+                      child: TextField(
+                        controller: speedEmptyCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: 'Empty speed', suffixText: 'mph', isDense: true, border: OutlineInputBorder()),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: TextField(
+                        controller: speedLoadedCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: 'Loaded speed', suffixText: 'mph', isDense: true, border: OutlineInputBorder()),
+                      ),
+                    ),
+                  ]),
                 ],
               ],
             ),
@@ -278,6 +302,8 @@ class _RigTabState extends State<RigTab> {
     if (isTruck) {
       data['empty_mpg'] = double.tryParse(emptyMpgCtrl.text.trim());
       data['loaded_mpg'] = double.tryParse(loadedMpgCtrl.text.trim());
+      data['speed_empty'] = double.tryParse(speedEmptyCtrl.text.trim());
+      data['speed_loaded'] = double.tryParse(speedLoadedCtrl.text.trim());
     } else {
       data['trailer_subtype'] = trailerSubtype;
     }

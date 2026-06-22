@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'broker_directory_screen.dart';
 
 
 const List<String> _contactTypes = ['Direct Customer', 'Broker', 'Agent', 'Escort'];
@@ -248,6 +249,85 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
+  /// Open the shared broker directory; if a broker is chosen, copy it into
+  /// this user's contacts (deduped) and — in pick mode — return it to caller.
+  Future<void> _openDirectory() async {
+    final broker = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(builder: (_) => const BrokerDirectoryScreen()),
+    );
+    if (broker == null) return;
+    await _importBroker(broker);
+  }
+
+  Future<void> _importBroker(Map<String, dynamic> b) async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return;
+
+      final company = (b['company'] ?? '').toString().trim();
+      if (company.isEmpty) return;
+
+      // Already in this user's contacts? Reuse it rather than duplicating.
+      final existing = await _supabase
+          .from('contacts')
+          .select()
+          .eq('user_id', user.id)
+          .eq('name', company)
+          .limit(1);
+
+      Map<String, dynamic> contact;
+      if ((existing as List).isNotEmpty) {
+        contact = Map<String, dynamic>.from(existing.first);
+      } else {
+        // Real email vs a portal note like "(Navisphere portal)" — keep real
+        // emails in the email field, fold setup notes into the notes field.
+        final phone = (b['dispatch_phone'] ?? '').toString().trim();
+        final emailRaw = (b['email'] ?? '').toString().trim();
+        final realEmail = emailRaw.contains('@') ? emailRaw : '';
+        final setupNote = (!emailRaw.contains('@') && emailRaw.isNotEmpty)
+            ? 'Carrier setup: $emailRaw. '
+            : '';
+        final freight = (b['freight_types'] ?? '').toString().trim();
+        final dirNotes = (b['notes'] ?? '').toString().trim();
+        final notes =
+            ('$setupNote$freight${dirNotes.isNotEmpty ? ' — $dirNotes' : ''}').trim();
+
+        final inserted = await _supabase.from('contacts').insert({
+          'user_id': user.id,
+          'name': company,
+          'company': '',
+          'phone': phone,
+          'email': realEmail,
+          'city': '',
+          'state': (b['hq_state'] ?? '').toString().trim().toUpperCase(),
+          'notes': notes,
+          'contact_type': 'Broker',
+          'star_rating': 0,
+          'best_load_states': <String>[],
+        }).select().single();
+        contact = Map<String, dynamic>.from(inserted);
+      }
+
+      if (!mounted) return;
+      if (widget.pickMode) {
+        Navigator.pop(context, contact); // hand the broker straight to the quote
+      } else {
+        _loadContacts();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Added $company to your contacts'),
+            backgroundColor: Colors.green[700],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Import failed: $e')));
+      }
+    }
+  }
+
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -270,6 +350,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
       appBar: AppBar(
         title: Text(widget.pickMode ? 'Pick a Contact' : 'Contacts'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.import_contacts),
+            tooltip: 'Broker Directory',
+            onPressed: _openDirectory,
+          ),
           IconButton(icon: const Icon(Icons.add), onPressed: () => _addOrEditContact()),
         ],
       ),

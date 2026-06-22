@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/supabase_config.dart';
 import 'auth/auth_gate.dart';
+import 'theme/trucost_theme.dart';
 
-/// Goes in: lib/main.dart (replaces the default counter app)
+/// Goes in: lib/main.dart
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,10 +25,7 @@ class TruCostApp extends StatelessWidget {
     return MaterialApp(
       title: 'TruCost',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
-        useMaterial3: true,
-      ),
+      theme: TruCostTheme.theme(TruCostThemeId.green),
       home: const AuthGate(),
     );
   }

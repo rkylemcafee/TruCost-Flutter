@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'calculator/calculator_screen.dart';
+import 'quote/quote_screen.dart';
 import 'route/route_screen.dart';
 import 'trips/saved_trips_screen.dart';
+import 'trips/trip_sheet_screen.dart';
 import 'contacts/contacts_screen.dart';
 import 'copilot/copilot_screen.dart';
 import 'expenses/receipt_capture_screen.dart';
+import 'expenses/document_viewer_screen.dart';
 import 'settings/settings_screen.dart';
 
 class HomePage extends StatefulWidget {
@@ -95,69 +98,84 @@ class _HomePageState extends State<HomePage> {
                     ],
                   ),
                 ),
-                const Spacer(),
-                if (_usingDefaultLogo)
-                  Flexible(
-                    flex: 6,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Image.asset(
-                        'assets/images/trucost_logo.jpg',
-                        fit: BoxFit.contain,
-                      ),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 16),
+                        if (_usingDefaultLogo)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: SizedBox(
+                              height: 200,
+                              child: Image.asset(
+                                'assets/images/trucost_logo.jpg',
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                          )
+                        else ...[
+                          const Text(
+                            'TruCost',
+                            style: TextStyle(
+                              fontSize: 40,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: [Shadow(blurRadius: 10, color: Colors.black54)],
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Owner-Operator Co-Pilot',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.white70,
+                              shadows: [Shadow(blurRadius: 8, color: Colors.black54)],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Text(
+                          user?.email ?? '',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.white60,
+                            shadows: [Shadow(blurRadius: 8, color: Colors.black54)],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Column(
+                            children: [
+                              _navButton(context, Icons.route, 'Route a Load', const RouteScreen(), filled: true),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.calculate, 'I Know My Miles', const CalculatorScreen()),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.post_add, 'Enter Trip', const QuoteScreen()),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.bookmark, 'Saved Trips', const SavedTripsScreen()),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.document_scanner, 'Scan Documents', const ReceiptCaptureScreen(),
+                                  subtitle: 'Receipts \u00b7 BOL \u00b7 POD \u00b7 Rate Cons \u00b7 Permits'),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.folder_open, 'View Documents', const DocumentViewerScreen()),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.fact_check, 'Trip Sheet', const TripSheetScreen()),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.people, 'Contacts', const ContactsScreen()),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.mic, 'Co-Pilot', const CopilotScreen()),
+                              const SizedBox(height: 12),
+                              _navButton(context, Icons.tune, 'Setup', const SettingsScreen()),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
                     ),
-                  )
-                else ...[
-                  const Text(
-                    'TruCost',
-                    style: TextStyle(
-                      fontSize: 40,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      shadows: [Shadow(blurRadius: 10, color: Colors.black54)],
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Owner-Operator Co-Pilot',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white70,
-                      shadows: [Shadow(blurRadius: 8, color: Colors.black54)],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                Text(
-                  user?.email ?? '',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.white60,
-                    shadows: [Shadow(blurRadius: 8, color: Colors.black54)],
                   ),
                 ),
-                const SizedBox(height: 24),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Column(
-                    children: [
-                      _navButton(context, Icons.route, 'Route a Load', const RouteScreen(), filled: true),
-                      const SizedBox(height: 12),
-                      _navButton(context, Icons.calculate, 'I Know My Miles', const CalculatorScreen()),
-                      const SizedBox(height: 12),
-                      _navButton(context, Icons.bookmark, 'Saved Trips', const SavedTripsScreen()),
-                      const SizedBox(height: 12),
-                      _navButton(context, Icons.receipt_long, 'Scan Receipt', const ReceiptCaptureScreen()),
-                      const SizedBox(height: 12),
-                      _navButton(context, Icons.people, 'Contacts', const ContactsScreen()),
-                      const SizedBox(height: 12),
-                      _navButton(context, Icons.mic, 'Co-Pilot', const CopilotScreen()),
-                      const SizedBox(height: 12),
-                      _navButton(context, Icons.tune, 'Setup', const SettingsScreen()),
-                    ],
-                  ),
-                ),
-                const Spacer(),
               ],
             ),
           ),
@@ -166,18 +184,31 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _navButton(BuildContext context, IconData icon, String label, Widget screen, {bool filled = false}) {
+  Widget _navButton(BuildContext context, IconData icon, String label, Widget screen, {bool filled = false, String? subtitle}) {
     Future<void> go() async {
       await Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
       if (mounted) _loadSplash(); // pick up a home photo changed in Settings
     }
+    final Widget labelWidget = subtitle == null
+        ? Text(label, style: const TextStyle(fontSize: 18))
+        : Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 18)),
+              Text(subtitle,
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: filled ? Colors.blueGrey[400] : Colors.white70)),
+            ],
+          );
     return SizedBox(
       width: double.infinity,
       child: filled
           ? ElevatedButton.icon(
               onPressed: go,
               icon: Icon(icon, size: 24),
-              label: Text(label, style: const TextStyle(fontSize: 18)),
+              label: labelWidget,
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 backgroundColor: Colors.white,
@@ -189,7 +220,7 @@ class _HomePageState extends State<HomePage> {
           : OutlinedButton.icon(
               onPressed: go,
               icon: Icon(icon, size: 24),
-              label: Text(label, style: const TextStyle(fontSize: 18)),
+              label: labelWidget,
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 foregroundColor: Colors.white,

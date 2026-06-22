@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import '../help/help_content.dart';
 import 'rig_tab.dart';
 
 /// Tabbed settings — the way back into everything onboarding set up.
@@ -29,12 +30,15 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   // Business
   final _carrierCutCtrl = TextEditingController();
   final _overheadCtrl = TextEditingController();
-  final _fuelPriceCtrl = TextEditingController();
-  final _emptyMpgCtrl = TextEditingController();
-  final _loadedMpgCtrl = TextEditingController();
-  final _speedEmptyCtrl = TextEditingController();
-  final _speedLoadedCtrl = TextEditingController();
   final _annualHoursCtrl = TextEditingController();
+
+  // Authority info for trip-sheet headers.
+  final _operatorNameCtrl = TextEditingController();
+  final _mcCtrl = TextEditingController();
+  final _dotCtrl = TextEditingController();
+  final _carrierCtrl = TextEditingController();
+
+  bool _carrierFuelCard = false; // carrier covers fuel (card/advance), deducted on settlement
 
   bool _loading = true;
   bool _saving = false;
@@ -77,7 +81,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           .from('profiles')
           .select(
               'copilot_name, preferred_name, hourly_rate, carrier_cut_pct, overhead_pct, '
-              'fuel_price_default, empty_mpg, loaded_mpg, speed_empty, speed_loaded, annual_work_hours, splash_photo_url')
+              'annual_work_hours, splash_photo_url, '
+              'operator_name, mc_number, dot_number, carrier_name, carrier_fuel_card')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -86,13 +91,13 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       _hourlyRateCtrl.text = _numStr(p?['hourly_rate']);
       _carrierCutCtrl.text = _numStr(p?['carrier_cut_pct']);
       _overheadCtrl.text = _numStr(p?['overhead_pct']);
-      _fuelPriceCtrl.text = _numStr(p?['fuel_price_default']);
-      _emptyMpgCtrl.text = _numStr(p?['empty_mpg']);
-      _loadedMpgCtrl.text = _numStr(p?['loaded_mpg']);
-      _speedEmptyCtrl.text = _numStr(p?['speed_empty']);
-      _speedLoadedCtrl.text = _numStr(p?['speed_loaded']);
       _annualHoursCtrl.text = _numStr(p?['annual_work_hours']);
       _splashUrl = p?['splash_photo_url']?.toString();
+      _operatorNameCtrl.text = (p?['operator_name'] ?? '').toString();
+      _mcCtrl.text = (p?['mc_number'] ?? '').toString();
+      _dotCtrl.text = (p?['dot_number'] ?? '').toString();
+      _carrierCtrl.text = (p?['carrier_name'] ?? '').toString();
+      _carrierFuelCard = p?['carrier_fuel_card'] == true;
     } catch (e) {
       _toast('Could not load settings: $e');
     } finally {
@@ -120,12 +125,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       addNum('hourly_rate', _hourlyRateCtrl);
       addNum('carrier_cut_pct', _carrierCutCtrl);
       addNum('overhead_pct', _overheadCtrl);
-      addNum('fuel_price_default', _fuelPriceCtrl);
-      addNum('empty_mpg', _emptyMpgCtrl);
-      addNum('loaded_mpg', _loadedMpgCtrl);
-      addNum('speed_empty', _speedEmptyCtrl);
-      addNum('speed_loaded', _speedLoadedCtrl);
       addNum('annual_work_hours', _annualHoursCtrl);
+
+      void addText(String key, TextEditingController c) {
+        final v = c.text.trim();
+        updates[key] = v.isEmpty ? null : v;
+      }
+
+      addText('operator_name', _operatorNameCtrl);
+      addText('mc_number', _mcCtrl);
+      addText('dot_number', _dotCtrl);
+      addText('carrier_name', _carrierCtrl);
+      updates['carrier_fuel_card'] = _carrierFuelCard;
 
       await _supabase.from('profiles').update(updates).eq('user_id', user.id);
 
@@ -177,12 +188,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     _newPasswordCtrl.dispose();
     _carrierCutCtrl.dispose();
     _overheadCtrl.dispose();
-    _fuelPriceCtrl.dispose();
-    _emptyMpgCtrl.dispose();
-    _loadedMpgCtrl.dispose();
-    _speedEmptyCtrl.dispose();
-    _speedLoadedCtrl.dispose();
     _annualHoursCtrl.dispose();
+    _operatorNameCtrl.dispose();
+    _mcCtrl.dispose();
+    _dotCtrl.dispose();
+    _carrierCtrl.dispose();
     super.dispose();
   }
 
@@ -191,6 +201,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     return Scaffold(
       appBar: AppBar(
         title: const Text('Setup & Settings'),
+        actions: const [HelpButton(HelpScreens.settings)],
         bottom: TabBar(
           controller: _tab,
           tabs: const [
@@ -386,6 +397,60 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         const SizedBox(height: 8),
         const Divider(),
         const SizedBox(height: 12),
+        const Text('Authority (for trip sheets)',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        const Text('Printed on the header of every trip sheet. Fill in what applies to you.',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _operatorNameCtrl,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            labelText: 'Your name / business',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _mcCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'MC #',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: _dotCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'DOT #',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _carrierCtrl,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            labelText: 'Leased to (carrier)',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Divider(),
+        const SizedBox(height: 12),
         const Text('Home photo',
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
@@ -448,32 +513,25 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             Expanded(child: _numberField(_overheadCtrl, 'Overhead', suffix: '%')),
           ],
         ),
+        const SizedBox(height: 4),
+        SwitchListTile(
+          title: const Text('Carrier fuel card / advance'),
+          subtitle: const Text('If on, fuel bought this way is deducted from your settlement'),
+          value: _carrierFuelCard,
+          onChanged: (v) => setState(() => _carrierFuelCard = v),
+          contentPadding: EdgeInsets.zero,
+        ),
         const SizedBox(height: 24),
-        const Text('Your Defaults',
+        const Text('Your Time',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
         const SizedBox(height: 4),
-        const Text('These pre-fill every load you run.',
+        const Text('Hours you work in a year — this sets your target hourly rate.',
             style: TextStyle(fontSize: 12, color: Colors.grey)),
         const SizedBox(height: 12),
-        _numberField(_fuelPriceCtrl, 'Fuel price', prefix: '\$ ', suffix: '/gal'),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(child: _numberField(_emptyMpgCtrl, 'Empty MPG')),
-            const SizedBox(width: 12),
-            Expanded(child: _numberField(_loadedMpgCtrl, 'Loaded MPG')),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(child: _numberField(_speedEmptyCtrl, 'Empty speed', suffix: 'mph')),
-            const SizedBox(width: 12),
-            Expanded(child: _numberField(_speedLoadedCtrl, 'Loaded speed', suffix: 'mph')),
-          ],
-        ),
-        const SizedBox(height: 12),
         _numberField(_annualHoursCtrl, 'Annual working hours', suffix: 'hrs/yr'),
+        const SizedBox(height: 10),
+        const Text('MPG and road speed live on your truck — set them under the Rig tab.',
+            style: TextStyle(fontSize: 11, color: Colors.grey)),
         const SizedBox(height: 12),
       ],
     );

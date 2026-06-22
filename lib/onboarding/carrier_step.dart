@@ -18,6 +18,7 @@ class _CarrierStepState extends State<CarrierStep> {
 
   double _keepPct = 75;
   bool _carrierChargesFuelTax = false;
+  bool _carrierFuelCard = false;
   String _fscMethod = 'included';
   final _fscRateCtrl = TextEditingController();
   double _fscPctReceived = 100;
@@ -38,6 +39,7 @@ class _CarrierStepState extends State<CarrierStep> {
       await _supabase.from('profiles').update({
         'carrier_cut_pct': carrierCut,
         'carrier_charges_fuel_tax': _carrierChargesFuelTax,
+        'carrier_fuel_card': _carrierFuelCard,
         'fsc_method': _fscMethod,
         'fsc_rate': fscRate,
         'fsc_pct_received': _fscPctReceived,
@@ -108,6 +110,13 @@ class _CarrierStepState extends State<CarrierStep> {
             title: const Text('Carrier deducts fuel tax from settlement?'),
             value: _carrierChargesFuelTax,
             onChanged: (v) => setState(() => _carrierChargesFuelTax = v),
+            contentPadding: EdgeInsets.zero,
+          ),
+          SwitchListTile(
+            title: const Text('Do you run a carrier fuel card or advance?'),
+            subtitle: const Text('If yes, fuel is deducted from your settlement'),
+            value: _carrierFuelCard,
+            onChanged: (v) => setState(() => _carrierFuelCard = v),
             contentPadding: EdgeInsets.zero,
           ),
           const SizedBox(height: 16),

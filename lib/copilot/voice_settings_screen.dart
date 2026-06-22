@@ -34,6 +34,7 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   bool _englishOnly = true;
   bool _loading = true;
   bool _saving = false;
+  bool _noHqVoices = false; // true when no Enhanced/Premium voices are installed
   String _copilotName = 'Co-Pilot';
   int _memoryDays = 1; // 0 = no memory; how far back the co-pilot recalls
   String _copilotAvatar = 'initial'; // 'initial' or a face key (f1..f3/m1..m3)
@@ -97,7 +98,8 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
             final key = '$name|$locale';
             if (seen.contains(key)) continue;
             seen.add(key);
-            voices.add({'name': name, 'locale': locale});
+            final quality = (v['quality'] ?? '').toString();
+            voices.add({'name': name, 'locale': locale, 'quality': quality});
           }
         }
       }
@@ -123,10 +125,31 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  // Apple's Enhanced and Premium voices sound human; the default/compact ones sound robotic.
+  bool _isHq(Map<String, String> v) {
+    final q = (v['quality'] ?? '').toLowerCase();
+    return q == 'enhanced' || q == 'premium';
+  }
+
+  // English always; Spanish too when the "English only" switch is off.
+  bool _localeOk(Map<String, String> v) {
+    final loc = v['locale']!.toLowerCase();
+    final isEn = loc.startsWith('en');
+    final isEs = loc.startsWith('es');
+    return _englishOnly ? isEn : (isEn || isEs);
+  }
+
   void _applyFilter() {
-    _shown = _englishOnly
-        ? _allVoices.where((v) => v['locale']!.toLowerCase().startsWith('en')).toList()
-        : _allVoices;
+    final hq = _allVoices.where((v) => _localeOk(v) && _isHq(v)).toList();
+    if (hq.isNotEmpty) {
+      _shown = hq;
+      _noHqVoices = false;
+    } else {
+      // No Enhanced/Premium installed for these languages — don't strand the driver
+      // with an empty list; show what's available and nudge them to download better ones.
+      _shown = _allVoices.where(_localeOk).toList();
+      _noHqVoices = true;
+    }
   }
 
   // Android voice names are ugly ("en-us-x-sfg#female_1-local"). iOS names are
@@ -243,41 +266,60 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: [
-                _identityCard(),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  color: Colors.blueGrey[50],
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                // Whole page scrolls as one unit, so the name/face/memory block
+                // slides up out of the way and every voice gets room to show.
+                Expanded(
+                  child: ListView(
                     children: [
-                      Text('Pick how $_copilotName sounds',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Tap ▶ to hear a voice. Tap the row to choose it. '
-                        'All voices are free and live on your phone — no data, no monthly cost.',
-                        style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                      _identityCard(),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        color: Colors.blueGrey[50],
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Pick how $_copilotName sounds',
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Tap ▶ to hear a voice. Tap the row to choose it. '
+                              'Showing only Apple Enhanced and Premium voices — the default ones sound robotic. All are free and already on your phone.',
+                              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
                       ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('${_shown.length} voice${_shown.length != 1 ? 's' : ''} available',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                        ),
+                      ),
+                      if (_noHqVoices)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: Text(
+                            'No Enhanced or Premium voices are installed yet, so all available voices are shown. '
+                            'To get the good ones: iOS Settings > Accessibility > Spoken Content > Voices, '
+                            'pick a voice, and tap the cloud to download its Enhanced or Premium version.',
+                            style: TextStyle(fontSize: 12, color: Colors.orange[800]),
+                          ),
+                        ),
+                      if (_shown.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(child: Text('No voices found on this device.')),
+                        )
+                      else
+                        ..._shown.map((v) => Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              child: _voiceTile(v),
+                            )),
                     ],
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('${_shown.length} voice${_shown.length != 1 ? 's' : ''} available',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                  ),
-                ),
-                Expanded(
-                  child: _shown.isEmpty
-                      ? const Center(child: Text('No voices found on this device.'))
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          itemCount: _shown.length,
-                          itemBuilder: (ctx, i) => _voiceTile(_shown[i]),
-                        ),
                 ),
                 SafeArea(
                   child: Padding(

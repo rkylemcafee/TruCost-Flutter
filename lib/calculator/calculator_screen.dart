@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../engine/trucost_engine.dart';
 import '../services/fuel_price_service.dart';
+import '../help/help_content.dart';
 import '../contacts/contacts_screen.dart';
 import '../trips/load_details_screen.dart';
 
@@ -116,6 +117,12 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           depreciationRate: _toDouble(t['depreciation_pct'], 20) / 100,
           monthlyPayment: _toDouble(t['monthly_payment'], 0),
         );
+        // MPG and speed live on the truck — let it drive the math, falling back
+        // to the profile/defaults loaded above if the truck hasn't set them.
+        _emptyMpg = _toDouble(t['empty_mpg'], _emptyMpg);
+        _loadedMpg = _toDouble(t['loaded_mpg'], _loadedMpg);
+        _speedEmpty = _toDouble(t['speed_empty'], _speedEmpty);
+        _speedLoaded = _toDouble(t['speed_loaded'], _speedLoaded);
       }
 
       final trailers = await _supabase
@@ -362,7 +369,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     final r = _result;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Calculate a Load')),
+      appBar: AppBar(title: const Text('Calculate a Load'), actions: const [HelpButton(HelpScreens.quote)]),
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
         child: ListView(

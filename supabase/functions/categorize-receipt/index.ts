@@ -53,6 +53,8 @@ Fields:
 - "expense_date": receipt date as YYYY-MM-DD, or null if not visible
 - "amount": the TOTAL paid, as a plain number (no $), or null
 - "tax_amount": tax charged as a plain number, or null
+- "gallons": for FUEL or DEF only, the gallons/quantity pumped as a plain number, or null
+- "state": for FUEL or DEF, the 2-letter US state code where it was bought (read from the station's printed address), or null
 - "category": choose EXACTLY ONE from this list: ${categories.join(", ")}
 - "payment_method": e.g. "Visa", "Cash", "Amex", or null
 - "line_items": short array of strings describing what was bought, or []
@@ -62,7 +64,9 @@ Rules:
 - Choose "category" from what was ACTUALLY purchased, not from the vendor name. A truck stop sells fuel, parking, showers, food, scales, and supplies — never assume fuel. A receipt for a parking spot with no fuel is "Parking".
 - If nothing fits, use "Other".
 - Use null for anything you cannot read. NEVER guess an amount.
-- amount and tax_amount must be plain numbers like 45.20, not strings.`;
+- amount and tax_amount must be plain numbers like 45.20, not strings.
+- "gallons" applies ONLY to fuel or DEF. Read it from the pump line (often labeled GAL, GALLONS, QTY, VOLUME, or QUANTITY — not the price per gallon). For anything that isn't fuel/DEF, gallons is null. It must be a plain number like 92.45, not a string.
+- "state" applies mainly to fuel/DEF. Read the 2-letter state code from the station's printed address (e.g. "Ocala, FL 34470" -> "FL"). Use null if you cannot read it or it isn't a fuel/DEF receipt.`;
 }
 
 Deno.serve(async (req) => {

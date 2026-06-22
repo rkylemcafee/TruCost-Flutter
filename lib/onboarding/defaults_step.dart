@@ -16,7 +16,6 @@ class DefaultsStep extends StatefulWidget {
 class _DefaultsStepState extends State<DefaultsStep> {
   final _supabase = Supabase.instance.client;
 
-  final _fuelPriceCtrl = TextEditingController(text: '4.00');
   final _emptyMpgCtrl = TextEditingController(text: '8');
   final _loadedMpgCtrl = TextEditingController(text: '6');
   final _speedEmptyCtrl = TextEditingController(text: '60');
@@ -34,7 +33,6 @@ class _DefaultsStepState extends State<DefaultsStep> {
       if (user == null) return;
 
       await _supabase.from('profiles').update({
-        'fuel_price_default': double.tryParse(_fuelPriceCtrl.text) ?? 4.00,
         'empty_mpg': double.tryParse(_emptyMpgCtrl.text) ?? 8,
         'loaded_mpg': double.tryParse(_loadedMpgCtrl.text) ?? 6,
         'speed_empty': double.tryParse(_speedEmptyCtrl.text) ?? 60,
@@ -57,7 +55,6 @@ class _DefaultsStepState extends State<DefaultsStep> {
 
   @override
   void dispose() {
-    _fuelPriceCtrl.dispose();
     _emptyMpgCtrl.dispose();
     _loadedMpgCtrl.dispose();
     _speedEmptyCtrl.dispose();
@@ -98,7 +95,6 @@ class _DefaultsStepState extends State<DefaultsStep> {
             style: TextStyle(fontSize: 14, color: Colors.grey),
           ),
           const SizedBox(height: 24),
-          _field(_fuelPriceCtrl, 'Fuel Price', suffix: '\$/gal'),
           Row(
             children: [
               Expanded(child: _field(_emptyMpgCtrl, 'Empty MPG')),

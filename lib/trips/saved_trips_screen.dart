@@ -10,11 +10,15 @@ class SavedTripsScreen extends StatefulWidget {
 
 enum TripSort { date, gross, net, hourly }
 
+// trips.stage drives the two views: quotes vs real (booked/won) loads.
+enum StageView { all, quotes, booked }
+
 class _SavedTripsScreenState extends State<SavedTripsScreen> {
   final _supabase = Supabase.instance.client;
   List<Map<String, dynamic>> _trips = [];
   bool _loading = true;
   TripSort _sort = TripSort.date;
+  StageView _view = StageView.all;
 
   @override
   void initState() {
@@ -46,6 +50,29 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
           SnackBar(content: Text('Error loading trips: $e')),
         );
       }
+    }
+  }
+
+  // stage: 'quote' (default) -> 'won' / 'lost' -> 'completed'.
+  String _stageOf(Map<String, dynamic> t) {
+    final s = (t['stage'] ?? '').toString().toLowerCase();
+    return s.isEmpty ? 'quote' : s;
+  }
+
+  bool _isReal(Map<String, dynamic> t) {
+    final s = _stageOf(t);
+    // booked/won/completed OR the operational status flipped to booked
+    return s == 'won' || s == 'completed' || (t['status'] ?? '').toString() == 'booked';
+  }
+
+  List<Map<String, dynamic>> get _visibleTrips {
+    switch (_view) {
+      case StageView.all:
+        return _trips;
+      case StageView.quotes:
+        return _trips.where((t) => !_isReal(t)).toList();
+      case StageView.booked:
+        return _trips.where((t) => _isReal(t)).toList();
     }
   }
 
@@ -90,67 +117,101 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
     }
   }
 
+  String _viewLabel(StageView v) {
+    switch (v) {
+      case StageView.all: return 'All';
+      case StageView.quotes: return 'Quotes';
+      case StageView.booked: return 'Booked';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final visible = _visibleTrips;
     return Scaffold(
-      appBar: AppBar(title: const Text('Saved Trips')),
+      appBar: AppBar(title: const Text('Loads')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _trips.isEmpty
-              ? const Center(
-                  child: Text('No saved trips yet.\nCalculate a load and tap Save.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16, color: Colors.grey)))
-              : Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      color: Colors.grey[100],
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            Text('Sort by: ',
-                                style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-                            const SizedBox(width: 4),
-                            ...TripSort.values.map((s) => Padding(
-                                  padding: const EdgeInsets.only(right: 6),
-                                  child: ChoiceChip(
-                                    label: Text(_sortLabel(s), style: const TextStyle(fontSize: 12)),
-                                    selected: _sort == s,
-                                    onSelected: (_) {
-                                      setState(() {
-                                        _sort = s;
-                                        _sortTrips();
-                                      });
-                                    },
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                )),
-                          ],
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text('${_trips.length} trip${_trips.length != 1 ? 's' : ''}',
-                            style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                      ),
-                    ),
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: _loadTrips,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          itemCount: _trips.length,
-                          itemBuilder: (ctx, i) => _buildTripCard(_trips[i]),
-                        ),
-                      ),
-                    ),
-                  ],
+          : Column(
+              children: [
+                // Stage view: Quotes vs Booked vs All
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  color: Colors.grey[100],
+                  child: Row(
+                    children: [
+                      Text('Show: ',
+                          style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                      const SizedBox(width: 4),
+                      ...StageView.values.map((v) => Padding(
+                            padding: const EdgeInsets.only(right: 6),
+                            child: ChoiceChip(
+                              label: Text(_viewLabel(v), style: const TextStyle(fontSize: 12)),
+                              selected: _view == v,
+                              onSelected: (_) => setState(() => _view = v),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          )),
+                    ],
+                  ),
                 ),
+                // Sort
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  color: Colors.grey[50],
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        Text('Sort by: ',
+                            style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                        const SizedBox(width: 4),
+                        ...TripSort.values.map((s) => Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ChoiceChip(
+                                label: Text(_sortLabel(s), style: const TextStyle(fontSize: 12)),
+                                selected: _sort == s,
+                                onSelected: (_) {
+                                  setState(() {
+                                    _sort = s;
+                                    _sortTrips();
+                                  });
+                                },
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            )),
+                      ],
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('${visible.length} ${_view == StageView.quotes ? "quote" : "load"}${visible.length != 1 ? 's' : ''}',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                  ),
+                ),
+                Expanded(
+                  child: visible.isEmpty
+                      ? Center(
+                          child: Text(
+                              _view == StageView.booked
+                                  ? 'No booked loads yet.'
+                                  : 'No saved loads yet.\nQuote a load and tap Save.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 16, color: Colors.grey)))
+                      : RefreshIndicator(
+                          onRefresh: _loadTrips,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            itemCount: visible.length,
+                            itemBuilder: (ctx, i) => _buildTripCard(visible[i]),
+                          ),
+                        ),
+                ),
+              ],
+            ),
     );
   }
 
@@ -165,6 +226,7 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
     final origin = trip['origin'] ?? '';
     final destination = trip['destination'] ?? '';
     final isWinner = net >= 0;
+    final real = _isReal(trip);
     final contact = trip['contacts'];
     final contactName = contact is Map ? (contact['name'] ?? '') : '';
     final contactCompany = contact is Map ? (contact['company'] ?? '') : '';
@@ -196,6 +258,7 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
               spacing: 6,
               runSpacing: 4,
               children: [
+                _badge(real ? 'BOOKED' : 'QUOTE', real ? Colors.green : Colors.orange),
                 _badge(date, Colors.grey),
                 _badge('${miles.round()} mi', Colors.blueGrey),
                 _badge(_usd(gross), Colors.blue),
@@ -225,12 +288,95 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
                 
                 _detailRow('Deadhead', '${_toNum(trip['deadhead_miles']).round()} mi'),
                 _detailRow('Loaded', '${_toNum(trip['loaded_miles']).round()} mi'),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: Icon(real ? Icons.local_shipping : Icons.check_circle_outline, size: 18),
+                    label: Text(real ? 'Load Details' : 'Book This Load'),
+                    onPressed: () async {
+                      final changed = await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => LoadDetailsScreen(tripId: trip['id'].toString()),
+                        ),
+                      );
+                      if (changed == true) _loadTrips();
+                    },
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                    label: const Text('Delete Load', style: TextStyle(color: Colors.red)),
+                    onPressed: () => _confirmAndDelete(trip),
+                  ),
+                ),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmAndDelete(Map<String, dynamic> trip) async {
+    final id = trip['id'].toString();
+    final name = (trip['trip_name'] ?? 'this load').toString();
+    int receipts = 0, docs = 0;
+    try {
+      final r = await _supabase.from('expenses').select('id').eq('trip_id', id);
+      receipts = (r as List).length;
+    } catch (_) {}
+    try {
+      final d = await _supabase.from('trip_documents').select('id').eq('trip_id', id);
+      docs = (d as List).length;
+    } catch (_) {}
+    if (!mounted) return;
+
+    final msg = StringBuffer('Delete "$name"?');
+    if (receipts > 0 || docs > 0) {
+      final parts = <String>[];
+      if (receipts > 0) parts.add('$receipts receipt${receipts == 1 ? '' : 's'}');
+      if (docs > 0) parts.add('$docs document${docs == 1 ? '' : 's'}');
+      msg.write('\n\nThis load has ${parts.join(' and ')}. '
+          'Receipts will be kept but unlinked from any load; documents on this load will be removed.');
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete load'),
+        content: Text(msg.toString()),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      // Unlink receipts (kept, just no longer tied to a load) and clear the
+      // load's documents first so the trip row deletes cleanly.
+      await _supabase.from('expenses').update({'trip_id': null}).eq('trip_id', id);
+      await _supabase.from('trip_documents').delete().eq('trip_id', id);
+      await _supabase.from('trips').delete().eq('id', id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Load deleted')));
+      }
+      _loadTrips();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      }
+    }
   }
 
   Widget _badge(String text, Color color) {
