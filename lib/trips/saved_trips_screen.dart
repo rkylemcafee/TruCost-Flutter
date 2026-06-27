@@ -8,7 +8,7 @@ class SavedTripsScreen extends StatefulWidget {
   State<SavedTripsScreen> createState() => _SavedTripsScreenState();
 }
 
-enum TripSort { date, gross, net, hourly }
+enum TripSort { date, pro, gross, net, hourly }
 
 // trips.stage drives the two views: quotes vs real (booked/won) loads.
 enum StageView { all, quotes, booked }
@@ -81,11 +81,20 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
       case TripSort.date:
         _trips.sort((a, b) => (b['trip_date'] ?? '').compareTo(a['trip_date'] ?? ''));
         break;
+      case TripSort.pro:
+        // Biggest PRO# first; loads with no PRO# sink to the bottom so the
+        // ones still needing a number are easy to spot at the end.
+        _trips.sort((a, b) {
+          final pa = _proSortKey(a);
+          final pb = _proSortKey(b);
+          return pb.compareTo(pa);
+        });
+        break;
       case TripSort.gross:
-        _trips.sort((a, b) => _toNum(b['gross_pay']).compareTo(_toNum(a['gross_pay'])));
+        _trips.sort((a, b) => _grossOf(b).compareTo(_grossOf(a)));
         break;
       case TripSort.net:
-        _trips.sort((a, b) => _toNum(b['estimated_net']).compareTo(_toNum(a['estimated_net'])));
+        _trips.sort((a, b) => _netOf(b).compareTo(_netOf(a)));
         break;
       case TripSort.hourly:
         _trips.sort((a, b) => _getHourly(b).compareTo(_getHourly(a)));
@@ -99,18 +108,62 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
     return double.tryParse(v.toString()) ?? 0;
   }
 
-  double _getHourly(Map<String, dynamic> trip) {
+  // Read the first column that has a real value. Booked loads write the new
+  // canonical columns (agreed_gross / net_to_operator / effective_hourly);
+  // older quotes used gross_pay / estimated_net or stashed values in the
+  // estimate JSON. This keeps the list correct across all of them.
+  double _firstNum(Map<String, dynamic> trip, List<String> keys) {
+    for (final k in keys) {
+      final v = trip[k];
+      if (v != null) {
+        final n = _toNum(v);
+        if (n != 0) return n;
+      }
+    }
+    return 0;
+  }
+
+  double _grossOf(Map<String, dynamic> trip) =>
+      _firstNum(trip, ['agreed_gross', 'quoted_gross', 'offer_gross', 'gross_pay']);
+
+  double _netOf(Map<String, dynamic> trip) {
+    final n = _firstNum(trip, ['net_to_operator', 'estimated_net']);
+    if (n != 0) return n;
     final json = trip['estimate_json'];
-    if (json == null) return 0;
+    return json is Map ? _toNum(json['netToOperator']) : 0;
+  }
+
+  double _getHourly(Map<String, dynamic> trip) {
+    final direct = _firstNum(trip, ['effective_hourly']);
+    if (direct != 0) return direct;
+    final json = trip['estimate_json'];
     if (json is Map) return _toNum(json['effectiveHourlyRate']);
     return 0;
   }
 
   String _usd(double v) => '\$${v.toStringAsFixed(2)}';
 
+  // True when this load has no PRO# yet (so we can flag it for follow-up).
+  bool _hasPro(Map<String, dynamic> trip) {
+    final p = (trip['pro_number'] ?? '').toString().trim();
+    return p.isNotEmpty;
+  }
+
+  // Sort key for PRO#: the trailing number, zero-padded wide so numeric order
+  // holds. Missing PRO# returns empty string, which sorts below any real one
+  // (we sort descending, so empty lands at the bottom).
+  String _proSortKey(Map<String, dynamic> trip) {
+    final p = (trip['pro_number'] ?? '').toString().trim();
+    if (p.isEmpty) return '';
+    final m = RegExp(r'(\d+)$').firstMatch(p);
+    if (m == null) return p; // non-numeric — sort lexically
+    return m.group(1)!.padLeft(20, '0');
+  }
+
   String _sortLabel(TripSort s) {
     switch (s) {
       case TripSort.date: return 'Date';
+      case TripSort.pro: return 'PRO #';
       case TripSort.gross: return 'Gross';
       case TripSort.net: return 'Net';
       case TripSort.hourly: return '\$/hr';
@@ -218,8 +271,8 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
   Widget _buildTripCard(Map<String, dynamic> trip) {
     final name = trip['trip_name'] ?? 'Unnamed';
     final date = trip['trip_date'] ?? '';
-    final gross = _toNum(trip['gross_pay']);
-    final net = _toNum(trip['estimated_net']);
+    final gross = _grossOf(trip);
+    final net = _netOf(trip);
     final fuel = _toNum(trip['estimated_fuel_cost']);
     final miles = _toNum(trip['total_miles']);
     final hourly = _getHourly(trip);
@@ -259,6 +312,7 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
               runSpacing: 4,
               children: [
                 _badge(real ? 'BOOKED' : 'QUOTE', real ? Colors.green : Colors.orange),
+                if (real && !_hasPro(trip)) _badge('NO PRO #', Colors.deepOrange),
                 _badge(date, Colors.grey),
                 _badge('${miles.round()} mi', Colors.blueGrey),
                 _badge(_usd(gross), Colors.blue),

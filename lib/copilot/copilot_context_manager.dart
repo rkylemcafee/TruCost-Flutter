@@ -28,7 +28,7 @@ class CopilotContextManager {
     } catch (_) {}
   }
 
-  Future<void> loadPriorContext() async {
+  Future<void> loadPriorContext({String? excludeSessionId}) async {
     priorContext.clear();
     if (memoryDays <= 0) return;
     try {
@@ -38,12 +38,15 @@ class CopilotContextManager {
           .toUtc()
           .subtract(Duration(days: memoryDays))
           .toIso8601String();
-      final data = await _supabase
+      var query = _supabase
           .from('copilot_messages')
           .select('role, content, created_at')
           .eq('user_id', user.id)
-          .gte('created_at', since)
-          .order('created_at', ascending: true);
+          .gte('created_at', since);
+      if (excludeSessionId != null && excludeSessionId.isNotEmpty) {
+        query = query.neq('session_id', excludeSessionId);
+      }
+      final data = await query.order('created_at', ascending: true);
 
       final all = <Map<String, String>>[];
       for (final m in data as List) {

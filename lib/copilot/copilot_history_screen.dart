@@ -2,6 +2,38 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
+// Build a transcript string for one session and open the OS share sheet.
+String _transcriptText(Map<String, dynamic> session) {
+  final messages = session['messages'] as List;
+  final firstDate = DateTime.parse(messages.first['created_at'] as String).toLocal();
+  final dateStr = '${firstDate.month}/${firstDate.day}/${firstDate.year}';
+  final buffer = StringBuffer();
+  buffer.writeln('Conversation with Co-Pilot');
+  buffer.writeln('Date: $dateStr');
+  buffer.writeln('');
+  for (final m in messages) {
+    final dt = DateTime.parse(m['created_at'] as String).toLocal();
+    final hr = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+    final mn = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final speaker = m['role'] == 'user' ? 'You' : 'Co-Pilot';
+    buffer.writeln('[$hr:$mn $ampm] $speaker:');
+    buffer.writeln(m['content']?.toString() ?? '');
+    buffer.writeln('');
+  }
+  return buffer.toString();
+}
+
+Future<void> _shareSession(BuildContext context, Map<String, dynamic> session) async {
+  final text = _transcriptText(session);
+  final box = context.findRenderObject() as RenderBox?;
+  await Share.share(
+    text,
+    subject: 'TruCost Co-Pilot Conversation',
+    sharePositionOrigin: box != null ? box.localToGlobal(Offset.zero) & box.size : null,
+  );
+}
+
 class CopilotHistoryScreen extends StatefulWidget {
   const CopilotHistoryScreen({super.key});
   @override
@@ -99,10 +131,18 @@ class _CopilotHistoryScreenState extends State<CopilotHistoryScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text('${_fmtDate(s['last_time'] as String)} · ${s['count']} messages'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => _TranscriptScreen(session: s),
-                        )),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.ios_share),
+                              tooltip: 'Share transcript',
+                              onPressed: () => _shareSession(context, s),
+                            ),
+                            const Icon(Icons.chevron_right),
+                          ],
+                        ),
+                        onTap: () => Navigator.of(context).pop(s['session_id'] as String),
                       );
                     },
                   ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'copilot_avatar.dart';
+import '../common/voice_helper.dart';
 
 /// Lets the driver browse every on-device voice, preview it, and save their
 /// pick to their profile. No API calls — uses the free native iOS/Android
@@ -105,10 +106,16 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
       }
 
       voices.sort((a, b) {
-        // English voices first, then alphabetical by display name.
+        // English first, then Premium → Enhanced → Standard, then gender, then name.
         final aEn = a['locale']!.toLowerCase().startsWith('en') ? 0 : 1;
         final bEn = b['locale']!.toLowerCase().startsWith('en') ? 0 : 1;
         if (aEn != bEn) return aEn.compareTo(bEn);
+        final qa = VoiceHelper.qualityForMap(a).index;
+        final qb = VoiceHelper.qualityForMap(b).index;
+        if (qa != qb) return qa.compareTo(qb);
+        final ga = _genderRank(a['name']!);
+        final gb = _genderRank(b['name']!);
+        if (ga != gb) return ga.compareTo(gb);
         return _pretty(a['name']!).toLowerCase().compareTo(_pretty(b['name']!).toLowerCase());
       });
 
@@ -131,6 +138,18 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
     return q == 'enhanced' || q == 'premium';
   }
 
+  // Male first (Evan reads male), then female, then unknown. Flip in VoiceHelper.
+  int _genderRank(String name) {
+    switch (VoiceHelper.genderForName(name)) {
+      case VoiceGender.male:
+        return 0;
+      case VoiceGender.female:
+        return 1;
+      case VoiceGender.unknown:
+        return 2;
+    }
+  }
+
   // English always; Spanish too when the "English only" switch is off.
   bool _localeOk(Map<String, String> v) {
     final loc = v['locale']!.toLowerCase();
@@ -140,16 +159,10 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   }
 
   void _applyFilter() {
-    final hq = _allVoices.where((v) => _localeOk(v) && _isHq(v)).toList();
-    if (hq.isNotEmpty) {
-      _shown = hq;
-      _noHqVoices = false;
-    } else {
-      // No Enhanced/Premium installed for these languages — don't strand the driver
-      // with an empty list; show what's available and nudge them to download better ones.
-      _shown = _allVoices.where(_localeOk).toList();
-      _noHqVoices = true;
-    }
+    // Show every voice for the chosen language(s), already sorted best-first.
+    // Don't hide the standard ones — just let the good ones float to the top.
+    _shown = _allVoices.where(_localeOk).toList();
+    _noHqVoices = !_shown.any(_isHq);
   }
 
   // Android voice names are ugly ("en-us-x-sfg#female_1-local"). iOS names are
@@ -232,6 +245,32 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
     }
   }
 
+  Widget _voiceStep(String n, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+                color: Colors.blueGrey[700], shape: BoxShape.circle),
+            child: Text(n,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text,
+                style: TextStyle(fontSize: 12, color: Colors.grey[800])),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _tts.stop();
@@ -283,9 +322,45 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
                                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                             const SizedBox(height: 4),
                             Text(
-                              'Tap ▶ to hear a voice. Tap the row to choose it. '
-                              'Showing only Apple Enhanced and Premium voices — the default ones sound robotic. All are free and already on your phone.',
+                              'Best voices first. Tap ▶ to hear one, tap the row to choose it. '
+                              'Enhanced and Premium sound human; Standard sound robotic. All are free and already on your phone.',
                               style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(children: [
+                                    Icon(Icons.settings, size: 16, color: Colors.grey[700]),
+                                    const SizedBox(width: 6),
+                                    const Text('Want even better voices?',
+                                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                                  ]),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Open the iPhone Settings app (the gray gear on your home screen), then:',
+                                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  _voiceStep('1', 'Accessibility'),
+                                  _voiceStep('2', 'Spoken Content'),
+                                  _voiceStep('3', 'Voices, then English'),
+                                  _voiceStep('4',
+                                      'Tap a voice, then the download cloud to get its Enhanced or Premium version'),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    "They're free, and any you download show up in this list automatically.",
+                                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                         ),

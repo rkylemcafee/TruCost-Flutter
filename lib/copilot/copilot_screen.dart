@@ -117,7 +117,19 @@ class _CopilotScreenState extends State<CopilotScreen> {
           const HelpButton(HelpScreens.copilot),
           IconButton(icon: Icon(_c.voiceOn ? Icons.volume_up : Icons.volume_off), onPressed: _c.toggleVoice, tooltip: 'Voice on/off'),
           IconButton(icon: const Icon(Icons.record_voice_over), onPressed: _openVoiceSettings, tooltip: 'Choose voice'),
-          IconButton(icon: const Icon(Icons.history), onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CopilotHistoryScreen())), tooltip: 'History'),
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'History',
+            onPressed: () async {
+              final sid = await Navigator.of(context).push<String>(
+                MaterialPageRoute(builder: (_) => const CopilotHistoryScreen()),
+              );
+              if (sid != null && sid.isNotEmpty) {
+                await _c.loadSession(sid);
+                _scrollToBottom();
+              }
+            },
+          ),
           if (_c.messages.isNotEmpty)
             IconButton(icon: const Icon(Icons.add_comment_outlined), onPressed: _newConversation, tooltip: 'New conversation'),
         ],

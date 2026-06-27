@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'copilot_audio_service.dart';
 import 'copilot_context_manager.dart';
@@ -29,6 +30,7 @@ class CopilotVoiceController extends ChangeNotifier {
   String get copilotAvatar => context.copilotAvatar;
 
   String sessionId = const Uuid().v4();
+  static const _kSessionKey = 'copilot_active_session';
 
   Future<bool?> Function()? onShowParkedReminder;
   Future<bool?> Function()? onShowResumeDialog;
@@ -39,6 +41,20 @@ class CopilotVoiceController extends ChangeNotifier {
 
   Future<void> initialize() async {
     await context.loadNames();
+
+    // Restore the last active session id (survives navigation / app restart).
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_kSessionKey);
+      if (saved != null && saved.isNotEmpty) sessionId = saved;
+    } catch (_) {}
+
+    // Load the N-day memory for the LLM (excludes the current session to avoid double-send).
+    await context.loadPriorContext(excludeSessionId: sessionId);
+
+    // Repopulate the visible conversation with THIS session's messages.
+    await _restoreVisibleMessages();
+
     await audio.setup(
       onSpeakingStart: () { speaking = true; if (handsFree) audio.resetIdle(_autoStopHandsFree); notifyListeners(); },
       onSpeakingComplete: () { speaking = false; if (handsFree && !isThinking) { audio.resetIdle(_autoStopHandsFree); audio.scheduleRelisten(_startListening); } notifyListeners(); },
@@ -48,6 +64,47 @@ class CopilotVoiceController extends ChangeNotifier {
     );
     await audio.loadVoiceFromProfile(_supabase);
     notifyListeners();
+  }
+
+  // Pull the current session's messages from copilot_messages into the visible list.
+  Future<void> _restoreVisibleMessages() async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return;
+      final data = await _supabase
+          .from('copilot_messages')
+          .select('role, content, created_at')
+          .eq('user_id', user.id)
+          .eq('session_id', sessionId)
+          .order('created_at', ascending: true);
+      messages.clear();
+      for (final m in data as List) {
+        final role = (m['role'] ?? '').toString();
+        final content = (m['content'] ?? '').toString();
+        if (content.isEmpty) continue;
+        if (role != 'user' && role != 'assistant') continue;
+        messages.add({'role': role, 'content': content});
+      }
+    } catch (_) {}
+  }
+
+  // Load a specific past session into the live chat to continue it (History tap).
+  Future<void> loadSession(String sid) async {
+    sessionId = sid;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kSessionKey, sid);
+    } catch (_) {}
+    await context.loadPriorContext(excludeSessionId: sid);
+    await _restoreVisibleMessages();
+    notifyListeners();
+  }
+
+  Future<void> _persistSessionId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kSessionKey, sessionId);
+    } catch (_) {}
   }
 
   Future<void> reloadPreferences() async {
@@ -67,6 +124,7 @@ class CopilotVoiceController extends ChangeNotifier {
 
     messages.add({'role': 'user', 'content': text});
     isThinking = true;
+    _persistSessionId();
     notifyListeners();
     onScrollToBottomRequested?.call();
 
@@ -179,6 +237,7 @@ class CopilotVoiceController extends ChangeNotifier {
   void clearConversation() {
     messages.clear();
     sessionId = const Uuid().v4();
+    _persistSessionId();
     notifyListeners();
   }
 

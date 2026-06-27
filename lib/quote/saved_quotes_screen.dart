@@ -37,9 +37,10 @@ class _SavedQuotesScreenState extends State<SavedQuotesScreen> {
       if (user == null) return;
 
       final rows = await _supabase
-          .from('quotes')
+          .from('trips')
           .select()
           .eq('user_id', user.id)
+          .eq('stage', 'quote')
           .order('created_at', ascending: false);
       final quotes = List<Map<String, dynamic>>.from(rows);
 
@@ -82,7 +83,7 @@ class _SavedQuotesScreenState extends State<SavedQuotesScreen> {
 
   Future<void> _delete(String id) async {
     try {
-      await _supabase.from('quotes').delete().eq('id', id);
+      await _supabase.from('trips').delete().eq('id', id);
       if (mounted) {
         setState(() => _quotes.removeWhere((q) => q['id'].toString() == id));
       }
@@ -136,11 +137,17 @@ class _SavedQuotesScreenState extends State<SavedQuotesScreen> {
 
   /// Take-home per hour at the quoted gross:
   /// (gross after carrier cut − costs) / trip hours.
+  /// Carrier cut and total cost now live in estimate_json (the trips table
+  /// keeps carrier_cut_pct_at_time as a column too; we read either).
   double _hourlyOf(Map q) {
+    final est = _est(q);
     final gross = _d(q['quoted_gross']);
-    final cut = _d(q['carrier_cut_pct']) / 100;
-    final cost = _d(q['total_cost']);
-    final hours = _d(_est(q)?['totalHours']);
+    final cutPct = q['carrier_cut_pct_at_time'] != null
+        ? _d(q['carrier_cut_pct_at_time'])
+        : _d(est?['carrierCutPct']);
+    final cut = cutPct / 100;
+    final cost = _d(est?['totalCost'] ?? est?['totalCosts']);
+    final hours = _d(est?['totalHours']);
     if (hours <= 0) return 0;
     return (gross * (1 - cut) - cost) / hours;
   }
@@ -263,7 +270,7 @@ class _SavedQuotesScreenState extends State<SavedQuotesScreen> {
 
   Widget _card(Map<String, dynamic> q) {
     final id = q['id'].toString();
-    final name = (q['quote_name'] ?? '').toString();
+    final name = (q['trip_name'] ?? '').toString();
     final origin = (q['origin'] ?? '').toString();
     final dest = (q['destination'] ?? '').toString();
     final route = (origin.isNotEmpty && dest.isNotEmpty)
@@ -271,10 +278,10 @@ class _SavedQuotesScreenState extends State<SavedQuotesScreen> {
         : (name.isNotEmpty ? name : 'Quote');
     final contact = _contactNameOf(q);
     final quoted = _d(q['quoted_gross']);
-    final perLoaded = _d(q['quoted_per_loaded_mile']);
+    final perLoaded = _d(_est(q)?['quotedPerLoadedMile']);
     final totalMiles = _d(q['total_miles']);
     final hourly = _hourlyOf(q);
-    final date = (q['quote_date'] ?? '').toString();
+    final date = (q['trip_date'] ?? '').toString();
 
     return Container(
       decoration: BoxDecoration(

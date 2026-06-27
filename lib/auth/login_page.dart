@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Email + password login.
@@ -188,10 +189,24 @@ class _LoginPageState extends State<LoginPage> {
         const SizedBox(height: 40),
         TextField(
           controller: _emailCtrl,
-          keyboardType: TextInputType.emailAddress,
+          // ── Samsung Keyboard fix (blocks all Android signups) ──
+          // In email mode (TextInputType.emailAddress) the Samsung Keyboard
+          // converts the period keypress into a space, turning
+          // kyle@trucost.app into "kyle@trucost app". autocorrect/
+          // enableSuggestions = false do NOT stop it (Samsung ignores them
+          // in email mode). visiblePassword forces a plain keyboard with no
+          // predictive substitution, so the dot is typed literally.
+          // Tradeoff: '@' moves off the primary key row to the symbols key.
+          // The deny-whitespace formatter is a backstop — a valid email can
+          // never contain a space, so this is safe on every platform.
+          keyboardType: TextInputType.visiblePassword,
+          textCapitalization: TextCapitalization.none,
           autocorrect: false,
           enableSuggestions: false,
           autofillHints: const [AutofillHints.email],
+          inputFormatters: [
+            FilteringTextInputFormatter.deny(RegExp(r'\s')),
+          ],
           decoration: const InputDecoration(
             labelText: 'Email',
             hintText: 'you@example.com',

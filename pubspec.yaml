@@ -1,8 +1,8 @@
 name: trucost_flutter
-description: "A new Flutter project."
+description: "TruCost Co-Pilot — true cost-per-mile calculator and AI assistant for owner-operators."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 2.0.0+2
 
 environment:
   sdk: ^3.12.1
@@ -28,6 +28,8 @@ dependencies:
   pdf: ^3.12.0
   printing: ^5.14.3
   google_fonts: ^8.1.0
+  video_player: ^2.11.1
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
@@ -48,4 +50,10 @@ flutter:
     - assets/copilot/m2.png
     - assets/copilot/m3.png
     - assets/copilot/m4.png
+    - assets/trucost-copilot-splash.mp4
     
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  remove_alpha_ios: true

@@ -32,7 +32,15 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
   final _proCtrl = TextEditingController();
   final _bolCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
+  final _grossCtrl = TextEditingController();
   final _proFocus = FocusNode();
+
+  // Cost basis pulled from the saved estimate. These don't change with gross,
+  // so we recompute carrier cut / net / $hr off the agreed gross arithmetically.
+  double _carrierCutPct = 25;
+  double _totalCosts = 0;
+  double _totalHours = 0;
+  bool _haveBasis = false;
 
   bool _loading = true;
   bool _saving = false;
@@ -88,6 +96,31 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
       _bolCtrl.text = (trip['bol_number'] ?? '').toString();
       _notesCtrl.text = (trip['notes'] ?? '').toString();
 
+      // Agreed gross: the number we're booking at. Falls back through the
+      // gross history (agreed → quoted → offer) so the field is never blank.
+      double pickNum(List<String> keys) {
+        for (final k in keys) {
+          final v = trip[k];
+          if (v is num) return v.toDouble();
+          final d = double.tryParse((v ?? '').toString());
+          if (d != null && d > 0) return d;
+        }
+        return 0;
+      }
+      final agreed = pickNum(['agreed_gross', 'quoted_gross', 'offer_gross', 'gross_pay']);
+      if (agreed > 0) _grossCtrl.text = agreed.toStringAsFixed(0);
+
+      // Cost basis from the saved estimate (gross-independent).
+      final est = trip['estimate_json'];
+      if (est is Map) {
+        _totalCosts = (est['totalCosts'] is num) ? (est['totalCosts'] as num).toDouble() : 0;
+        _totalHours = (est['totalHours'] is num) ? (est['totalHours'] as num).toDouble() : 0;
+        _haveBasis = _totalCosts > 0 && _totalHours > 0;
+      }
+      _carrierCutPct = pickNum(['carrier_cut_pct_at_time']) > 0
+          ? pickNum(['carrier_cut_pct_at_time'])
+          : 25;
+
       final existingPro = (trip['pro_number'] ?? '').toString();
       _booked = (trip['status'] ?? '').toString() == 'booked';
       _tripSheetSent = (trip['trip_sheet_sent'] ?? false) == true;
@@ -127,14 +160,30 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
       if (rows is List && rows.isNotEmpty) {
         final last = (rows.first['pro_number'] ?? '').toString();
         if (last.isNotEmpty) {
-          _proGuess = last;
+          // PRO#s are carrier-sequential, so the next is almost always last + 1.
+          // Pre-fill that as the guess; he confirms with dispatch and overtypes
+          // if it differs, or taps "Don't have one yet" to clear it.
+          final guess = _nextPro(last);
+          _proGuess = guess;
           _proIsGuess = true;
-          _proCtrl.text = last;
+          _proCtrl.text = guess;
         }
       }
     } catch (_) {
       // no prior PRO# — fine, field just starts empty
     }
+  }
+
+  // Bump the trailing digits of a PRO# by one, keeping any prefix and the
+  // original digit width: "20260005"->"20260006", "A0099"->"A0100",
+  // "999"->"1000". No trailing number -> returned unchanged.
+  String _nextPro(String pro) {
+    final match = RegExp(r'^(.*?)(\d+)$').firstMatch(pro);
+    if (match == null) return pro;
+    final prefix = match.group(1) ?? '';
+    final digits = match.group(2)!;
+    final incremented = (int.parse(digits) + 1).toString();
+    return '$prefix${incremented.padLeft(digits.length, '0')}';
   }
 
   Future<void> _loadLinkedExpenses() async {
@@ -217,6 +266,25 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
         'notes': _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
         'trip_sheet_sent': _tripSheetSent,
       };
+
+      // Agreed gross is the single locked number — all economics derive from it.
+      // Costs/hours are gross-independent (from the estimate), so carrier cut,
+      // net, and $/hr recompute arithmetically. No engine call needed.
+      final agreed = double.tryParse(_grossCtrl.text.trim());
+      if (agreed != null && agreed > 0) {
+        update['agreed_gross'] = agreed;
+        final cutPct = _carrierCutPct / 100.0;
+        final carrierCut = agreed * cutPct;
+        final operatorGross = agreed * (1 - cutPct);
+        update['carrier_cut'] = carrierCut;
+        if (_haveBasis) {
+          final net = operatorGross - _totalCosts;
+          final hourly = _totalHours > 0 ? net / _totalHours : 0.0;
+          update['net_to_operator'] = net;
+          update['effective_hourly'] = hourly;
+        }
+      }
+
       if (book && !_booked) {
         update['status'] = 'booked';
         update['booked_at'] = DateTime.now().toUtc().toIso8601String();
@@ -264,6 +332,7 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
     _proCtrl.dispose();
     _bolCtrl.dispose();
     _notesCtrl.dispose();
+    _grossCtrl.dispose();
     super.dispose();
   }
 
@@ -300,6 +369,31 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
                   ),
                 ],
                 const SizedBox(height: 20),
+                _label('Agreed gross (\$)', 'What you and the broker settled on — drives the math'),
+                TextField(
+                  controller: _grossCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    prefixText: '\$ ',
+                    hintText: 'e.g. 1600',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                if (_haveBasis && _agreedNet != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _agreedNet! >= 0
+                        ? 'Nets ${_usd(_agreedNet!)} · ${_usd(_agreedHourly!)}/hr after the cut and costs'
+                        : 'Loses ${_usd(_agreedNet!.abs())} at this rate',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: (_agreedNet! >= 0) ? Colors.green[800] : Colors.red[700],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
                 _label('Broker # (TQL#)', 'Given by the broker when you book'),
                 _field(_brokerCtrl, 'e.g. 88421307', autofocus: !_booked),
                 const SizedBox(height: 16),
@@ -307,14 +401,31 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
                 _field(_pickupCtrl, 'Optional'),
                 const SizedBox(height: 16),
                 _label('PRO #', _proIsGuess
-                    ? 'Pre-filled from your last load — just change the last few digits'
-                    : 'Your carrier assigns this — settlements list by it'),
+                    ? 'Guessed as last + 1 — confirm with dispatch, or tap below'
+                    : 'Dispatch assigns this — settlements list by it'),
                 _field(_proCtrl, 'Carrier PRO #',
                     focusNode: _proFocus,
                     onChanged: (_) {
                       if (_proIsGuess) setState(() => _proIsGuess = false);
                     }),
-                const SizedBox(height: 16),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      _proCtrl.clear();
+                      setState(() => _proIsGuess = false);
+                    },
+                    icon: const Icon(Icons.schedule, size: 16),
+                    label: const Text('Don\'t have one yet'),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      minimumSize: const Size(0, 0),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
                 _label('BOL #', 'From the shipping order — usually added at pickup'),
                 _field(_bolCtrl, 'Optional — can be added later'),
                 const SizedBox(height: 16),
@@ -477,6 +588,22 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
         isDense: true,
       ),
     );
+  }
+
+  String _usd(double v) => '\$${v.toStringAsFixed(0)}';
+
+  // Live recompute as he edits the agreed gross — same arithmetic the save uses.
+  double? get _agreedNet {
+    final g = double.tryParse(_grossCtrl.text.trim());
+    if (g == null || g <= 0 || !_haveBasis) return null;
+    final operatorGross = g * (1 - _carrierCutPct / 100.0);
+    return operatorGross - _totalCosts;
+  }
+
+  double? get _agreedHourly {
+    final n = _agreedNet;
+    if (n == null || _totalHours <= 0) return null;
+    return n / _totalHours;
   }
 
   String _prettyDate(String iso) {

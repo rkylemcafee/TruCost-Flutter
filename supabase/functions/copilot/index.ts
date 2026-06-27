@@ -25,7 +25,8 @@ Rules:
 - save_load runs the real engine itself and writes a COMPLETE record — fuel, hours, cost, net, and $/hr all filled in. Do NOT pass it your own cost numbers; give it the locations, the contact, and (only if the driver named one) the gross. It returns the real numbers; speak those. NEVER say it saved unless the tool returned a line starting with "Saved"; if a tool returns a line starting with "Error", tell the driver it did NOT save.
 - A saved load is a QUOTE by default. The one thing you can't guess is whether it's just a quote or a load he's actually running. So when he asks to save and hasn't told you which, ASK once, plainly: "Want me to keep this as a quote, or are we running this one?" If it's a quote or a price for someone, call save_load with stage 'quote'. If he's running it / booked it / "we're doing this one", call save_load with stage 'won'. If he already told you which, don't ask — just save.
 - If the broker put a number on the table first, pass it as offer_gross. Always pass contact_name when a customer or broker is named ("under Gertrude" -> contact_name "Gertrude"). Have the loaded miles (and deadhead, if a current location was given) first — from get_driving_distance, or let save_load look them up.
-- To change a price or detail on a load already saved, USE update_trip. To mark a quote won or lost later ("we got the Houston load", "we lost that one"), USE update_trip with stage 'won' or 'lost' (and agreed_gross if there's a final number). When finding which load to update, pass whatever the driver gives — the gross and the contact name pinpoint it even when several loads look alike; don't keep asking, just pass what you have.
+- To CHANGE anything on a saved load — the route (origin/destination), the rate, the stage, assign a contact, or add pickup/broker/pro/BOL numbers or notes — USE update_trip. Stages are: 'quote' (default), 'sent', 'won', 'booked', 'lost'. To assign/attach a contact to a load, pass assign_contact_name (e.g. driver says "assign Gertrude to this load" -> assign_contact_name "Gertrude"). To FIND the load you're changing, pass whatever the driver gives — and NUMBERS are the surest lock: if the driver reads off a broker number, pro number, or pickup number, pass it as match_broker_number / match_pro_number / match_pickup_number. The gross and route words also help. If you JUST pulled a load up with get_load and the driver says "change this one" / "assign her to this one", reuse what identified it (its gross, route, or a number) so update_trip lands on the same load. If update_trip returns a numbered LIST, read it and ask which, then call again with the gross or a number. NEVER tell the driver to go edit it in the app themselves — you can make the change; if a tool returns "Error", tell them plainly it didn't save.
+- To READ BACK saved loads without changing anything ("pull up the Houston to Butte load", "what was the gross on that", "who's the broker", "what's the pickup number", "do I have a quote for Tampa to Houston"), USE get_load. It searches ALL the driver's loads across every stage. If it returns a numbered LIST (several matched), read that list to the driver and ask which one, then call get_load again with that load's gross or contact to pull full details. Use get_load to ANSWER questions about saved loads; only use update_trip when actually CHANGING one.
 - The driver will toss out load details mid-conversation — a pickup or confirmation number, a broker/TQL number, a BOL number, a gate code, who to ask for at the dock, timing ("be there by 8"). NEVER pry for these, but whenever one is volunteered, SAVE it on the load: pickup_number, broker_number, and bol_number go in their own fields; anything else with no field of its own goes in notes (it appends, so nothing is lost). Use save_load if you're saving the load now, or update_trip to add details to a load already saved. You can read these back from the load's saved info to answer the driver later (e.g. "who am I asking for?" -> from notes).
 - When the driver wants to add or remove a state from a contact's good-load areas, or change any contact's info (company, phone, rating, type, notes), USE update_contact. Always use 2-letter state abbreviations (FL, GA, TX).
 - The driver's full rig (every truck and trailer) is listed below under DRIVER'S RIG. Use it to answer questions about their equipment.
@@ -35,6 +36,11 @@ Rules:
 - When the driver wants to call someone, USE make_call to open the phone dialer.
 - When the driver wants to text someone, USE send_text to open Messages.
 - When the driver wants to email someone, USE send_email to open their mail app. Write a clear subject and a short, professional body — you can speak the draft out loud first so the driver can okay it. Use the contact's saved email from the CONTACTS list below; if they have no email on file, ask the driver for it.
+- Separately from the driver's personal CONTACTS, there's a shared BROKER DIRECTORY below — the big national broker and heavy-haul desks any driver can cold-call to find a load. When the driver asks who they can call, who's got freight, or who to try for a load, pull from this directory. They ALL run nationwide, so NEVER rank them by state or imply one is "better in New York" — what separates them is FREIGHT TYPE. Lead with that: for flatbed, oversize, heavy, or project loads point them to the heavy/specialized desks (Landstar, Bennett, ATS, Mercer); for plain van or reefer, any of them work. Some entries are a booking PORTAL, not a phone line (e.g. "EchoDrive portal", "RXO Connect", "Navisphere", "FreightPower") — for those, tell the driver to book through that portal and do NOT try to dial it. To reach a real number, USE make_call or send_email with the directory's dispatch_phone/email.
+- There is ALSO an AGENT DIRECTORY: individual people (names + phone numbers), NOT companies — agents curated for the driver. When the driver asks who they can call or text for a load, who handles a certain freight type, who runs teams, or who's good for a lane/state, USE query_agents to search it (by freight type, trailer, origin state, team, or insurance fit). When they ask what's new ("any new agents this week?", "what got added lately?"), USE whats_new_agents. Both return REAL matches from the database — read back the names and numbers, never guess; agents the driver has hidden won't come back. To actually call or text one, USE make_call or send_text with the number query_agents returned.
+- When the driver wants to ADD an agent to their personal contacts ("add Marcus", "keep Dana", "put that one in my contacts"), USE add_agent_to_contacts. After that the agent is a normal contact they can call, text, and edit.
+- When the driver wants to HIDE or cull agents in bulk ("get rid of all the west-coast ones", "kill anything that needs teams", "I only want flatbed agents"), USE dismiss_agents. ALWAYS preview first: call it WITHOUT confirm to get the count and names, tell the driver "that's N agents — want me to hide them?", and only call again with confirm=true after they say yes. For "only keep X", set keep_only=true (that hides everything that ISN'T X). It is fully reversible — let them know you can bring any back.
+- When the driver wants hidden agents back ("unhide the west coast ones", "bring them all back"), USE restore_agents.
 - The driver can ask how many gallons they'll burn in each state (for IFTA, or to decide where to fuel), OR whether they've already bought enough fuel in a state. ONLY if they ask about fuel-by-state, gallons per state, IFTA, where/how much to fill, or "have I bought enough in [state]", USE get_state_fuel_burn with their current location (deadhead start), pickup, and delivery. NEVER bring this up on your own — it's noise to most drivers. It splits the empty deadhead from the loaded haul, so have their current location if you can; if you don't, ask once, but you can still run it on the loaded haul alone. The tool now also reports how many gallons they've ALREADY bought in each state (from their logged fuel receipts) and whether each state is covered or short — use that to answer "did I buy enough" directly instead of asking them how much they pumped.
 - When the driver asks what you'd run a load for, a good price on it, or what they should quote ("what should I quote", "what's a good price on this", "what would you run this load for?"), ASK for the pickup and dropoff city + state if not already known from context. Once you have the two locations, call get_driving_distance for exact miles (and deadhead if they give a current location), then USE recommend_quote with pickup, delivery (and deadhead_miles or current_location). It uses the exact same TruCostEngine logic as the app's calculator to get real costs for the driver's active rig + regional fuel + overhead + carrier cut, then adds a profit margin above the driver's own target $/hr.
 - ALWAYS give them BOTH numbers from recommend_quote: the gross to OPEN with, AND their FLOOR — the lowest gross that still holds their target $/hr. The floor is their walk-away so they can negotiate on the phone without calling you back. Say it plain, e.g. "I'd open at $4,725 on that Tampa to Houston run. If they push back, your floor's about $4,250 — below that you slip under your $50 an hour." Never give just the open number on its own.
@@ -106,27 +112,47 @@ const TOOLS = [
   },
   {
     name: "update_trip",
-    description: "Update an existing saved load — change a rate, mark it won/lost, or add details (pickup/broker/BOL numbers, notes). Find it by passing any combination of route words, gross, and contact name; gross + contact pinpoints it even when several loads look alike.",
+    description: "Update an existing saved load — change the route (origin/destination), rate, stage (quote/sent/won/booked/lost), assign a contact/broker to it, or add details (pickup/broker/pro/BOL numbers, notes). FIND the load by passing any combination you have: route words, gross, contact name, OR a broker_number/pro_number/pickup_number the driver reads off. Numbers are the surest match. If the driver just pulled a load up and says 'this one', pass whatever identified it (gross + route, or a number). If several loads still match, this returns a numbered LIST — read it and ask which, then call again with the gross or a number to lock it.",
     input_schema: {
       type: "object",
       properties: {
-        trip_name_search: { type: "string", description: "Any words from the load's name, route, or contact to find it, e.g. 'Miami New York' or 'Gertrude'" },
-        gross: { type: "number", description: "The load's gross/agreed price (e.g. 8500) — the surest way to find the right load when several look alike." },
-        contact_name: { type: "string", description: "Broker/customer on the load (e.g. 'Gertrude') to help pinpoint it." },
+        trip_name_search: { type: "string", description: "Any words from the load's name, route, or contact, e.g. 'Houston Butte' or 'Gertrude'" },
+        gross: { type: "number", description: "The load's gross/agreed price (e.g. 10000) — a strong way to pinpoint the right load." },
+        contact_name: { type: "string", description: "Broker/customer currently ON the load, to help FIND it (not to assign — use assign_contact_name for that)." },
+        match_broker_number: { type: "string", description: "Broker/confirmation number the driver reads off to FIND the load (e.g. 'TEST123')." },
+        match_pro_number: { type: "string", description: "Pro number the driver reads off to FIND the load (e.g. '20260005')." },
+        match_pickup_number: { type: "string", description: "Pickup number the driver reads off to FIND the load." },
+        assign_contact_name: { type: "string", description: "Assign/attach a contact to this load by name (e.g. 'assign Gertrude' -> 'Gertrude'). Looks the name up in the driver's contacts and links it." },
+        destination: { type: "string", description: "New delivery city/state, e.g. change 'Butte, MT' to 'Billings, MT'." },
+        origin: { type: "string", description: "New pickup origin/city." },
         gross_pay: { type: "number", description: "New gross pay amount" },
-        agreed_gross: { type: "number", description: "Final agreed price when the load is won" },
-        stage: { type: "string", description: "Set to 'won' if the driver got the load, 'lost' if they didn't, 'completed' once run." },
+        agreed_gross: { type: "number", description: "Final agreed price when the load is won/booked" },
+        stage: { type: "string", description: "New stage: 'quote', 'sent', 'won', 'booked', or 'lost'." },
         estimated_net: { type: "number", description: "New estimated net profit" },
         estimated_fuel_cost: { type: "number", description: "New estimated fuel cost" },
         deadhead_miles: { type: "number", description: "New deadhead miles" },
         loaded_miles: { type: "number", description: "New loaded miles" },
-        origin: { type: "string", description: "New pickup origin (driver's current location for deadhead)" },
-        pickup_number: { type: "string", description: "Pickup or confirmation number, if the broker gave one." },
-        broker_number: { type: "string", description: "Broker's load/confirmation number (TQL#)." },
-        bol_number: { type: "string", description: "Bill of Lading number." },
-        notes: { type: "string", description: "Any loose detail the driver volunteers that has no field of its own (gate codes, who to ask for, timing, special instructions). Appended to the load's notes." },
+        pickup_number: { type: "string", description: "SET the pickup/confirmation number on the load." },
+        broker_number: { type: "string", description: "SET the broker's load/confirmation number on the load." },
+        pro_number: { type: "string", description: "SET the pro number on the load." },
+        bol_number: { type: "string", description: "SET the Bill of Lading number on the load." },
+        notes: { type: "string", description: "Any loose detail with no field of its own (gate codes, who to ask for, timing). Appended to notes." },
       },
-      required: ["trip_name_search"],
+      required: [],
+    },
+  },
+  {
+    name: "get_load",
+    description: "Look up the driver's saved loads and READ them back WITHOUT changing anything. Use whenever the driver asks about loads they've saved — 'pull up the Houston to Butte load', 'what was the gross on the Gertrude load', 'do I have a quote for Tampa to Houston', \'who\'s the broker on that\', 'what's the pickup number'. Searches across ALL stages (quote, sent, won, booked, lost). If several loads match, this returns a SHORT NUMBERED LIST — read the list back to the driver and ask which one they mean, then call get_load again with more detail (the gross or contact) to pull the full record. If exactly one matches, it returns that load's full details. Read back what it returns; never guess.",
+    input_schema: {
+      type: "object",
+      properties: {
+        trip_name_search: { type: "string", description: "Any words from the load's route, name, or contact, e.g. 'Houston Butte' or 'Tampa Houston'" },
+        contact_name: { type: "string", description: "Broker/customer name if the driver names one" },
+        gross: { type: "number", description: "The load's gross dollars if mentioned — strongest signal to pinpoint one load" },
+        stage: { type: "string", description: "Optionally narrow by stage: 'quote', 'sent', 'won', 'booked', or 'lost'. Omit to search all." },
+      },
+      required: [],
     },
   },
   {
@@ -276,6 +302,74 @@ const TOOLS = [
         delivery: { type: "string", description: "Delivery city/state, for regional fuel" },
       },
       required: ["gross_pay", "loaded_miles"],
+    },
+  },
+  {
+    name: "query_agents",
+    description: "Search the AGENT DIRECTORY (individual people/agents, NOT the broker companies) for ones that fit the driver's need. Use when they ask who to call/text for a load, who handles a freight type, who runs teams, who's good for a lane/state, or who fits their insurance. Returns real matches; agents the driver has hidden are excluded. Call with no filters to list everything available.",
+    input_schema: {
+      type: "object",
+      properties: {
+        freight_type: { type: "string", description: "Freight they want, e.g. 'flatbed', 'reefer', 'van', 'oversize'" },
+        trailer_type: { type: "string", description: "Trailer needed, e.g. 'flatbed', 'step deck', 'RGN', 'reefer', 'van'" },
+        origin_state: { type: "string", description: "A single 2-letter state the load comes OUT of, e.g. 'CA'" },
+        origin_states: { type: "array", items: { type: "string" }, description: "Several states at once, e.g. a region like ['CA','OR','WA'] for the west coast" },
+        team: { type: "boolean", description: "true to only return agents whose loads typically need a team" },
+        within_my_insurance: { type: "boolean", description: "true to only return agents whose required cargo insurance is at or below what the driver carries" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "whats_new_agents",
+    description: "List agents recently added to the directory. Use when the driver asks what's new, what agents got added this week or lately, etc. Excludes agents the driver has hidden.",
+    input_schema: {
+      type: "object",
+      properties: {
+        days: { type: "number", description: "How many days back to look. Default 7." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "add_agent_to_contacts",
+    description: "Add an agent from the directory into the driver's personal contacts. Use when they say to add/keep/save a specific agent ('add Marcus', 'keep Dana', 'put that one in my contacts'). After this the agent is a normal contact they can call, text, and edit.",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent_name: { type: "string", description: "Name (or part of the name) of the agent to add" },
+      },
+      required: ["agent_name"],
+    },
+  },
+  {
+    name: "dismiss_agents",
+    description: "Hide one or more directory agents from the driver in bulk (soft, reversible). Use for culls like 'get rid of all the west-coast ones', 'kill anything that needs teams', or 'I only want flatbed agents'. ALWAYS call once WITHOUT confirm first to preview the count and names, get the driver's OK, then call again with confirm=true. Filters work the same as query_agents.",
+    input_schema: {
+      type: "object",
+      properties: {
+        freight_type: { type: "string", description: "Match agents with this freight type" },
+        trailer_type: { type: "string", description: "Match agents with this trailer type" },
+        origin_state: { type: "string", description: "A single 2-letter state the load comes OUT of, e.g. 'CA'" },
+        origin_states: { type: "array", items: { type: "string" }, description: "Several states for a region cull, e.g. ['CA','OR','WA'] for the west coast" },
+        team: { type: "boolean", description: "Match agents whose loads typically need a team" },
+        within_my_insurance: { type: "boolean", description: "Match agents whose required insurance is at/below the driver's coverage" },
+        keep_only: { type: "boolean", description: "If true, hide everything that does NOT match (i.e. KEEP ONLY the matches)" },
+        confirm: { type: "boolean", description: "Leave false/absent to preview. Set true to actually hide, after the driver confirms." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "restore_agents",
+    description: "Un-hide agents the driver previously dismissed. Use when they say 'bring them back', 'unhide the west coast ones', etc.",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent_name: { type: "string", description: "Name (or part) of a hidden agent to bring back" },
+        all: { type: "boolean", description: "true to restore ALL hidden agents" },
+      },
+      required: [],
     },
   },
 ];
@@ -514,77 +608,226 @@ async function saveTrip(supabase: any, input: any): Promise<string> {
   }
 }
 
-async function updateTrip(supabase: any, input: any): Promise<string> {
+async function getLoad(supabase: any, input: any): Promise<string> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return "Error: not signed in";
 
-    // The auto-generated name ("... Miami, FL to New York, NY - $8500") is too finicky
-    // for one ilike, so pull recent loads and match in JS across name/route/contact/gross.
     const { data: allTrips } = await supabase
       .from("trips")
-      .select("id, trip_name, gross_pay, agreed_gross, origin, destination, stage, estimate_json, notes, contact_id, contacts(name)")
+      .select("id, trip_name, gross_pay, agreed_gross, offer_gross, quoted_gross, origin, destination, stage, estimate_json, notes, pickup_number, broker_number, bol_number, pro_number, deadhead_miles, loaded_miles, net_to_operator, effective_hourly, contact_id, contacts(name), created_at")
       .eq("user_id", user.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(60);
 
     let candidates: any[] = allTrips || [];
 
-    // Gross is the strongest signal — narrow to loads at that price.
-    if (input.gross != null) {
-      const g = Number(input.gross);
-      const hit = candidates.filter((t: any) =>
-        Math.abs(Number(t.gross_pay) - g) < 1 || Math.abs(Number(t.agreed_gross || 0) - g) < 1);
+    if (input.stage) {
+      const st = String(input.stage).toLowerCase();
+      const hit = candidates.filter((t: any) => String(t.stage || "").toLowerCase() === st);
       if (hit.length) candidates = hit;
     }
-    // Contact / broker name.
+    if (input.gross != null) {
+      const g = Number(input.gross);
+      const near = (v: any) => v != null && Math.abs(Number(v) - g) < 1;
+      const hit = candidates.filter((t: any) =>
+        near(t.gross_pay) || near(t.agreed_gross) || near(t.offer_gross) || near(t.quoted_gross));
+      if (hit.length) candidates = hit;
+    }
     if (input.contact_name) {
       const cn = String(input.contact_name).toLowerCase();
       const hit = candidates.filter((t: any) => t.contacts && String(t.contacts.name || "").toLowerCase().includes(cn));
       if (hit.length) candidates = hit;
     }
-    // Free-text: every meaningful word must appear somewhere in name/route/contact.
     if (input.trip_name_search) {
-      const stop = ["the", "to", "and", "load", "run", "for", "from", "a"];
+      const stop = ["the", "to", "and", "load", "run", "for", "from", "a", "on", "my"];
       const words = String(input.trip_name_search).toLowerCase().split(/\s+/).filter((w: string) => w.length > 1 && !stop.includes(w));
       if (words.length) {
-        const hit = candidates.filter((t: any) => {
-          const hay = `${t.trip_name || ""} ${t.origin || ""} ${t.destination || ""} ${t.contacts ? t.contacts.name : ""}`.toLowerCase();
-          return words.every((w: string) => hay.includes(w));
-        });
-        if (hit.length) candidates = hit;
+        const hay = (t: any) => `${t.trip_name || ""} ${t.origin || ""} ${t.destination || ""} ${t.contacts ? t.contacts.name : ""}`.toLowerCase();
+        const strict = candidates.filter((t: any) => words.every((w: string) => hay(t).includes(w)));
+        if (strict.length) candidates = strict;
+        else {
+          const loose = candidates.filter((t: any) => words.some((w: string) => hay(t).includes(w.slice(0, 4))));
+          if (loose.length) candidates = loose;
+        }
       }
     }
 
-    const trip = candidates[0];
-    if (!trip) {
-      const recent = (allTrips || []).slice(0, 6)
-        .map((t: any) => `"${t.trip_name}" ($${t.gross_pay}${t.contacts ? ", " + t.contacts.name : ""})`).join("; ");
-      return `Could not find that load. Recent loads: ${recent || "none saved yet"}.`;
-    }
-      const updates: any = {};
-          if (input.gross_pay) updates.gross_pay = input.gross_pay;
-          if (input.agreed_gross) { updates.agreed_gross = input.agreed_gross; updates.gross_pay = input.agreed_gross; }
-          if (input.stage) updates.stage = input.stage;
-          if (input.estimated_net) updates.estimated_net = input.estimated_net;
-          if (input.estimated_fuel_cost) updates.estimated_fuel_cost = input.estimated_fuel_cost;
-          if (input.deadhead_miles !== undefined) updates.deadhead_miles = input.deadhead_miles;
-          if (input.loaded_miles !== undefined) updates.loaded_miles = input.loaded_miles;
-          if (input.origin) updates.origin = input.origin;
-          if (input.pickup_number) updates.pickup_number = input.pickup_number;
-          if (input.broker_number) updates.broker_number = input.broker_number;
-          if (input.bol_number) updates.bol_number = input.bol_number;
-          if (input.notes) {
-            const existingNotes = (trip.notes || "").trim();
-            const incoming = String(input.notes).trim();
-            updates.notes = !existingNotes ? incoming
-              : (existingNotes.includes(incoming) ? existingNotes : existingNotes + "\n" + incoming);
-          }
+    const f = (n: any) => `$${Math.round(Number(n) || 0)}`;
+    const stageLabel = (s: string) => {
+      const v = (s || "quote").toLowerCase();
+      if (v === "booked") return "BOOKED";
+      if (v === "won") return "won";
+      if (v === "lost") return "lost";
+      if (v === "sent") return "quote sent";
+      return "quote";
+    };
 
-    // Gross changed (renegotiated, or marked won at an agreed number)?
-    // Recompute net / $hr / carrier cut from THIS load's frozen cost basis —
-    // costs and hours don't change with gross, only the gross does.
+    if (candidates.length === 0) {
+      const recent = (allTrips || []).slice(0, 6)
+        .map((t: any) => `"${t.origin} to ${t.destination}" (${f(t.agreed_gross || t.gross_pay || t.quoted_gross)}, ${stageLabel(t.stage)})`).join("; ");
+      return `No saved load matches that. Recent loads: ${recent || "none saved yet"}.`;
+    }
+
+    if (candidates.length > 1) {
+      const list = candidates.slice(0, 6).map((t: any, i: number) => {
+        const g = t.agreed_gross || t.gross_pay || t.quoted_gross || t.offer_gross;
+        const who = t.contacts ? `, ${t.contacts.name}` : "";
+        return `${i + 1}) ${t.origin} to ${t.destination} — ${f(g)} (${stageLabel(t.stage)})${who}`;
+      }).join("; ");
+      return `Found ${candidates.length} loads that match. Read these back and ask which one: ${list}. Then call get_load again with the gross or contact to pull that one's full details.`;
+    }
+
+    const t = candidates[0];
+    const ej: any = t.estimate_json || {};
+    const gross = t.agreed_gross || t.gross_pay || t.quoted_gross || t.offer_gross;
+    const net = t.net_to_operator ?? ej.netToOperator ?? ej.netAtQuote;
+    const perHr = t.effective_hourly ?? ej.effectiveHourlyRate;
+    const broker = t.contacts ? t.contacts.name : null;
+
+    const parts: string[] = [];
+    parts.push(`${t.origin} to ${t.destination}`);
+    parts.push(`${stageLabel(t.stage)}`);
+    parts.push(`gross ${f(gross)}`);
+    if (net != null) parts.push(`net ${f(net)}${perHr != null ? ` (~${f(perHr)}/hr)` : ""}`);
+    if (t.loaded_miles) parts.push(`${Math.round(Number(t.loaded_miles))} loaded mi${t.deadhead_miles ? ` + ${Math.round(Number(t.deadhead_miles))} deadhead` : ""}`);
+    if (broker) parts.push(`broker/contact: ${broker}`);
+    else if (t.broker_number) parts.push(`broker #: ${t.broker_number}`);
+    if (t.pro_number) parts.push(`pro #: ${t.pro_number}`);
+    if (t.pickup_number) parts.push(`pickup #: ${t.pickup_number}`);
+    if (t.bol_number) parts.push(`BOL #: ${t.bol_number}`);
+    if (t.notes) parts.push(`notes: ${t.notes}`);
+    if (!broker && !t.broker_number) parts.push(`(no broker saved on this load)`);
+
+    return parts.join(" — ");
+  } catch (e) {
+    return `Error reading load: ${e}`;
+  }
+}
+
+async function updateTrip(supabase: any, input: any): Promise<string> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return "Error: not signed in";
+
+    const { data: allTrips } = await supabase
+      .from("trips")
+      .select("id, trip_name, gross_pay, agreed_gross, offer_gross, quoted_gross, origin, destination, stage, estimate_json, notes, pickup_number, broker_number, pro_number, bol_number, contact_id, contacts(name), created_at")
+      .eq("user_id", user.id)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(60);
+
+    let candidates: any[] = allTrips || [];
+
+    // Numbers are the surest match — if the driver read one off, use it first.
+    const numEq = (a: any, b: any) => a != null && b != null &&
+      String(a).replace(/\D/g, "") === String(b).replace(/\D/g, "") && String(a).replace(/\D/g, "") !== "";
+    if (input.match_broker_number) {
+      const hit = candidates.filter((t: any) => numEq(t.broker_number, input.match_broker_number) ||
+        String(t.broker_number || "").toLowerCase() === String(input.match_broker_number).toLowerCase());
+      if (hit.length) candidates = hit;
+    }
+    if (input.match_pro_number) {
+      const hit = candidates.filter((t: any) => numEq(t.pro_number, input.match_pro_number));
+      if (hit.length) candidates = hit;
+    }
+    if (input.match_pickup_number) {
+      const hit = candidates.filter((t: any) => numEq(t.pickup_number, input.match_pickup_number));
+      if (hit.length) candidates = hit;
+    }
+    // Gross
+    if (input.gross != null) {
+      const g = Number(input.gross);
+      const near = (v: any) => v != null && Math.abs(Number(v) - g) < 1;
+      const hit = candidates.filter((t: any) =>
+        near(t.gross_pay) || near(t.agreed_gross) || near(t.offer_gross) || near(t.quoted_gross));
+      if (hit.length) candidates = hit;
+    }
+    // Contact currently on the load
+    if (input.contact_name) {
+      const cn = String(input.contact_name).toLowerCase();
+      const hit = candidates.filter((t: any) => t.contacts && String(t.contacts.name || "").toLowerCase().includes(cn));
+      if (hit.length) candidates = hit;
+    }
+    // Free-text route/name — strict, then loose fallback (handles 'Butte' vs stored 'Butt').
+    if (input.trip_name_search) {
+      const stop = ["the", "to", "and", "load", "run", "for", "from", "a", "on", "my", "this"];
+      const words = String(input.trip_name_search).toLowerCase().split(/\s+/).filter((w: string) => w.length > 1 && !stop.includes(w));
+      if (words.length) {
+        const hay = (t: any) => `${t.trip_name || ""} ${t.origin || ""} ${t.destination || ""} ${t.contacts ? t.contacts.name : ""}`.toLowerCase();
+        const strict = candidates.filter((t: any) => words.every((w: string) => hay(t).includes(w)));
+        if (strict.length) candidates = strict;
+        else {
+          const loose = candidates.filter((t: any) => words.some((w: string) => hay(t).includes(w.slice(0, 4))));
+          if (loose.length) candidates = loose;
+        }
+      }
+    }
+
+    const f = (n: any) => `$${Math.round(Number(n) || 0)}`;
+    const stageLabel = (s: string) => {
+      const v = (s || "quote").toLowerCase();
+      if (v === "booked") return "BOOKED"; if (v === "won") return "won";
+      if (v === "lost") return "lost"; if (v === "sent") return "quote sent"; return "quote";
+    };
+
+    if (candidates.length === 0) {
+      const recent = (allTrips || []).slice(0, 6)
+        .map((t: any) => `${t.origin} to ${t.destination} (${f(t.agreed_gross || t.gross_pay)}, ${stageLabel(t.stage)})`).join("; ");
+      return `Error: could not find that load to update. Recent loads: ${recent || "none saved yet"}.`;
+    }
+    // Ambiguous — make Bob confirm instead of editing the wrong one.
+    if (candidates.length > 1) {
+      const list = candidates.slice(0, 6).map((t: any, i: number) =>
+        `${i + 1}) ${t.origin} to ${t.destination} — ${f(t.agreed_gross || t.gross_pay)} (${stageLabel(t.stage)})`).join("; ");
+      return `Found ${candidates.length} loads that match — read these back and ask which one before changing anything: ${list}. Then call update_trip again with the gross or a number to lock onto the right one.`;
+    }
+
+    const trip = candidates[0];
+
+    // ---- Resolve a contact to ASSIGN, if asked ----
+    let assignedContactId: string | null = null;
+    let assignNote = "";
+    if (input.assign_contact_name) {
+      const { data: contacts } = await supabase
+        .from("contacts")
+        .select("id, name")
+        .eq("user_id", user.id)
+        .ilike("name", `%${input.assign_contact_name}%`)
+        .limit(1);
+      if (contacts && contacts.length > 0) {
+        assignedContactId = contacts[0].id;
+        assignNote = `, assigned ${contacts[0].name}`;
+      } else {
+        return `Error: I don't see a contact named "${input.assign_contact_name}" in your contacts. Want me to add them first?`;
+      }
+    }
+
+    const updates: any = {};
+    if (assignedContactId) updates.contact_id = assignedContactId;
+    if (input.origin) updates.origin = input.origin;
+    if (input.destination) updates.destination = input.destination;
+    if (input.gross_pay) updates.gross_pay = input.gross_pay;
+    if (input.agreed_gross) { updates.agreed_gross = input.agreed_gross; updates.gross_pay = input.agreed_gross; }
+    if (input.stage) updates.stage = input.stage;
+    if (input.estimated_net) updates.estimated_net = input.estimated_net;
+    if (input.estimated_fuel_cost) updates.estimated_fuel_cost = input.estimated_fuel_cost;
+    if (input.deadhead_miles !== undefined) updates.deadhead_miles = input.deadhead_miles;
+    if (input.loaded_miles !== undefined) updates.loaded_miles = input.loaded_miles;
+    if (input.pickup_number) updates.pickup_number = input.pickup_number;
+    if (input.broker_number) updates.broker_number = input.broker_number;
+    if (input.pro_number) updates.pro_number = input.pro_number;
+    if (input.bol_number) updates.bol_number = input.bol_number;
+    if (input.notes) {
+      const existingNotes = (trip.notes || "").trim();
+      const incoming = String(input.notes).trim();
+      updates.notes = !existingNotes ? incoming
+        : (existingNotes.includes(incoming) ? existingNotes : existingNotes + "\n" + incoming);
+    }
+
+    // Recompute net/$hr if gross changed.
     let recomputedNet: number | null = null;
     let recomputedPerHour: number | null = null;
     const newGross = input.agreed_gross ?? input.gross_pay ?? null;
@@ -598,30 +841,30 @@ async function updateTrip(supabase: any, input: any): Promise<string> {
       const g = Number(newGross) || 0;
       const net = g * (1 - carrierFrac) - totalCosts;
       const perHour = totalHours > 0 ? net / totalHours : 0;
-      ej.netAtQuote = net;
-      ej.effectiveHourlyRate = perHour;
-      ej.carrierCutAmount = g * carrierFrac;
-      ej.quotedGross = g;
+      ej.netAtQuote = net; ej.effectiveHourlyRate = perHour;
+      ej.carrierCutAmount = g * carrierFrac; ej.quotedGross = g;
       ej.offerPerMile = totalMiles > 0 ? g / totalMiles : 0;
       ej.marginPct = minGross > 0 ? ((g / minGross) - 1) * 100 : 0;
-      updates.estimated_net = net;
-      updates.estimate_json = ej;
-      recomputedNet = net;
-      recomputedPerHour = perHour;
-      // Keep the auto-generated "- $XXXX" name suffix in sync with the agreed price.
+      updates.estimated_net = net; updates.estimate_json = ej;
+      recomputedNet = net; recomputedPerHour = perHour;
       if (typeof trip.trip_name === "string" && /- \$\d+$/.test(trip.trip_name)) {
         updates.trip_name = trip.trip_name.replace(/- \$\d+$/, `- $${Math.round(g)}`);
       }
     }
 
-    await supabase.from("trips").update(updates).eq("id", trip.id);
+    if (Object.keys(updates).length === 0) {
+      return `Found the load (${trip.origin} to ${trip.destination}) but you didn't tell me what to change on it.`;
+    }
 
-    const stageNote = input.stage ? ` — marked ${input.stage}` : "";
-    const f = (n: number) => `$${Math.round(n)}`;
+    const { error: upErr } = await supabase.from("trips").update(updates).eq("id", trip.id);
+    if (upErr) return `Error updating load: ${upErr.message || upErr}`;
+
+    const routeNow = `${updates.origin || trip.origin} to ${updates.destination || trip.destination}`;
+    const stageNote = input.stage ? ` — marked ${stageLabel(input.stage)}` : "";
     const netNote = recomputedNet != null
       ? `, net ${f(recomputedNet)} (~${f(recomputedPerHour ?? 0)}/hr)`
-      : (input.estimated_net ? `, net $${input.estimated_net}` : "");
-    return `Updated "${updates.trip_name || trip.trip_name}"${stageNote} — gross now ${f(Number(newGross ?? trip.gross_pay))}${netNote}`;
+      : (input.estimated_net ? `, net ${f(input.estimated_net)}` : "");
+    return `Updated ${routeNow}${assignNote}${stageNote} — gross ${f(Number(newGross ?? trip.agreed_gross ?? trip.gross_pay))}${netNote}`;
   } catch (e) {
     return `Error updating trip: ${e}`;
   }
@@ -1371,6 +1614,256 @@ async function saveLoad(supabase: any, input: any): Promise<string> {
   }
 }
 
+async function queryAgents(supabase: any, input: any): Promise<string> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return "Error: not signed in";
+
+    const { data: agents } = await supabase
+      .from("agent_directory")
+      .select("id, name, company, phone, email, freight_types, origin_states, trailer_types, min_cargo_insurance, typically_team")
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+    if (!agents || agents.length === 0) return "The agent directory is empty right now.";
+
+    const { data: hidden } = await supabase
+      .from("user_agent_status")
+      .select("agent_id")
+      .eq("user_id", user.id)
+      .eq("status", "dismissed");
+    const hiddenIds = new Set((hidden || []).map((h: any) => h.agent_id));
+
+    let myInsurance = 100000;
+    const { data: prof } = await supabase.from("profiles").select("cargo_insurance").eq("user_id", user.id).maybeSingle();
+    if (prof && prof.cargo_insurance != null) myInsurance = Number(prof.cargo_insurance);
+
+    const wantFreight = (input.freight_type || "").toString().toLowerCase().trim();
+    const wantTrailer = (input.trailer_type || "").toString().toLowerCase().trim();
+    const wantStates = new Set<string>();
+    if (input.origin_state) wantStates.add(String(input.origin_state).toUpperCase().trim());
+    if (Array.isArray(input.origin_states)) for (const s of input.origin_states) wantStates.add(String(s).toUpperCase().trim());
+    const arrHas = (arr: any, want: string) =>
+      Array.isArray(arr) && arr.some((x: any) => String(x).toLowerCase().includes(want));
+    const stateHit = (a: any) =>
+      !wantStates.size || (Array.isArray(a.origin_states) && a.origin_states.some((s: any) => wantStates.has(String(s).toUpperCase())));
+
+    const matches = agents.filter((a: any) => {
+      if (hiddenIds.has(a.id)) return false;
+      if (wantFreight && !arrHas(a.freight_types, wantFreight)) return false;
+      if (wantTrailer && !arrHas(a.trailer_types, wantTrailer)) return false;
+      if (!stateHit(a)) return false;
+      if (input.team === true && a.typically_team !== true) return false;
+      if (input.within_my_insurance === true && a.min_cargo_insurance != null && Number(a.min_cargo_insurance) > myInsurance) return false;
+      return true;
+    });
+
+    if (matches.length === 0) return "No agents match that. Want me to widen it, or check what's in the directory?";
+
+    const lines = matches.map((a: any) => {
+      const co = a.company ? ` @ ${a.company}` : "";
+      const ph = a.phone ? ` | ${a.phone}` : "";
+      const fr = Array.isArray(a.freight_types) && a.freight_types.length ? ` | ${a.freight_types.join("/")}` : "";
+      const st = Array.isArray(a.origin_states) && a.origin_states.length ? ` | out of ${a.origin_states.join(",")}` : "";
+      const tm = a.typically_team ? " | TEAM" : "";
+      const ins = a.min_cargo_insurance != null ? ` | needs $${Number(a.min_cargo_insurance).toLocaleString()} cargo` : "";
+      return `- ${a.name}${co}${ph}${fr}${st}${tm}${ins}`;
+    });
+    return `Found ${matches.length} agent${matches.length === 1 ? "" : "s"}:\n${lines.join("\n")}`;
+  } catch (e) {
+    return `Error searching agents: ${e}`;
+  }
+}
+
+async function whatsNewAgents(supabase: any, input: any): Promise<string> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return "Error: not signed in";
+
+    const days = Number(input.days) > 0 ? Number(input.days) : 7;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: agents } = await supabase
+      .from("agent_directory")
+      .select("id, name, company, phone, freight_types, typically_team, created_at")
+      .eq("is_active", true)
+      .gte("created_at", since)
+      .order("created_at", { ascending: false });
+    if (!agents || agents.length === 0) return `No new agents in the last ${days} days.`;
+
+    const { data: hidden } = await supabase
+      .from("user_agent_status")
+      .select("agent_id")
+      .eq("user_id", user.id)
+      .eq("status", "dismissed");
+    const hiddenIds = new Set((hidden || []).map((h: any) => h.agent_id));
+    const fresh = agents.filter((a: any) => !hiddenIds.has(a.id));
+    if (fresh.length === 0) return `No new agents in the last ${days} days.`;
+
+    const lines = fresh.map((a: any) => {
+      const co = a.company ? ` @ ${a.company}` : "";
+      const ph = a.phone ? ` | ${a.phone}` : "";
+      const fr = Array.isArray(a.freight_types) && a.freight_types.length ? ` | ${a.freight_types.join("/")}` : "";
+      const tm = a.typically_team ? " | TEAM" : "";
+      return `- ${a.name}${co}${ph}${fr}${tm}`;
+    });
+    return `${fresh.length} new agent${fresh.length === 1 ? "" : "s"} in the last ${days} days:\n${lines.join("\n")}`;
+  } catch (e) {
+    return `Error checking new agents: ${e}`;
+  }
+}
+
+async function addAgentToContacts(supabase: any, input: any): Promise<string> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return "Error: not signed in";
+    const nameQ = (input.agent_name || "").toString().trim();
+    if (!nameQ) return "Which agent? Give me a name.";
+
+    const { data: matches } = await supabase
+      .from("agent_directory")
+      .select("id, name, company, phone, email, origin_states")
+      .eq("is_active", true)
+      .ilike("name", `%${nameQ}%`)
+      .limit(2);
+    if (!matches || matches.length === 0) return `Couldn't find an agent named "${nameQ}".`;
+    if (matches.length > 1) return `More than one agent matches "${nameQ}": ${matches.map((m: any) => m.name).join(", ")}. Which one?`;
+    const a = matches[0];
+
+    const { data: existing } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("source_agent_id", a.id)
+      .is("deleted_at", null)
+      .limit(1);
+    if (existing && existing.length > 0) return `${a.name} is already in your contacts.`;
+
+    const { error: insErr } = await supabase.from("contacts").insert({
+      user_id: user.id,
+      name: a.name,
+      company: a.company,
+      phone: a.phone,
+      email: a.email,
+      contact_type: "Agent",
+      best_load_states: Array.isArray(a.origin_states) ? a.origin_states : [],
+      source_agent_id: a.id,
+    });
+    if (insErr) return `Error adding ${a.name}: ${insErr.message}`;
+
+    await supabase.from("user_agent_status").upsert(
+      { user_id: user.id, agent_id: a.id, status: "added" },
+      { onConflict: "user_id,agent_id" },
+    );
+    return `Added ${a.name}${a.company ? " (" + a.company + ")" : ""} to your contacts.`;
+  } catch (e) {
+    return `Error adding agent: ${e}`;
+  }
+}
+
+async function dismissAgents(supabase: any, input: any): Promise<string> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return "Error: not signed in";
+
+    const { data: agents } = await supabase
+      .from("agent_directory")
+      .select("id, name, freight_types, origin_states, trailer_types, min_cargo_insurance, typically_team")
+      .eq("is_active", true);
+    if (!agents || agents.length === 0) return "The agent directory is empty.";
+
+    const { data: hidden } = await supabase
+      .from("user_agent_status")
+      .select("agent_id")
+      .eq("user_id", user.id)
+      .eq("status", "dismissed");
+    const hiddenIds = new Set((hidden || []).map((h: any) => h.agent_id));
+
+    let myInsurance = 100000;
+    const { data: prof } = await supabase.from("profiles").select("cargo_insurance").eq("user_id", user.id).maybeSingle();
+    if (prof && prof.cargo_insurance != null) myInsurance = Number(prof.cargo_insurance);
+
+    const wantFreight = (input.freight_type || "").toString().toLowerCase().trim();
+    const wantTrailer = (input.trailer_type || "").toString().toLowerCase().trim();
+    const wantStates = new Set<string>();
+    if (input.origin_state) wantStates.add(String(input.origin_state).toUpperCase().trim());
+    if (Array.isArray(input.origin_states)) for (const s of input.origin_states) wantStates.add(String(s).toUpperCase().trim());
+    const arrHas = (arr: any, want: string) =>
+      Array.isArray(arr) && arr.some((x: any) => String(x).toLowerCase().includes(want));
+    const stateHit = (a: any) =>
+      !wantStates.size || (Array.isArray(a.origin_states) && a.origin_states.some((s: any) => wantStates.has(String(s).toUpperCase())));
+    const matchCriteria = (a: any) => {
+      if (wantFreight && !arrHas(a.freight_types, wantFreight)) return false;
+      if (wantTrailer && !arrHas(a.trailer_types, wantTrailer)) return false;
+      if (!stateHit(a)) return false;
+      if (input.team === true && a.typically_team !== true) return false;
+      if (input.within_my_insurance === true && a.min_cargo_insurance != null && Number(a.min_cargo_insurance) > myInsurance) return false;
+      return true;
+    };
+
+    const keepOnly = input.keep_only === true;
+    const target = agents.filter((a: any) => {
+      if (hiddenIds.has(a.id)) return false; // already hidden
+      const m = matchCriteria(a);
+      return keepOnly ? !m : m;
+    });
+
+    if (target.length === 0) return "Nothing matches that — no agents to hide.";
+
+    const names = target.map((a: any) => a.name).join(", ");
+    if (input.confirm !== true) {
+      return `PREVIEW — this would hide ${target.length} agent${target.length === 1 ? "" : "s"}: ${names}. Confirm with the driver, then call again with confirm=true.`;
+    }
+
+    const rows = target.map((a: any) => ({ user_id: user.id, agent_id: a.id, status: "dismissed" }));
+    const { error } = await supabase.from("user_agent_status").upsert(rows, { onConflict: "user_id,agent_id" });
+    if (error) return `Error hiding agents: ${error.message}`;
+    return `Hid ${target.length} agent${target.length === 1 ? "" : "s"}: ${names}. Say the word and I can bring any back.`;
+  } catch (e) {
+    return `Error hiding agents: ${e}`;
+  }
+}
+
+async function restoreAgents(supabase: any, input: any): Promise<string> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return "Error: not signed in";
+
+    if (input.all === true) {
+      const { data: del, error } = await supabase
+        .from("user_agent_status")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("status", "dismissed")
+        .select("agent_id");
+      if (error) return `Error restoring: ${error.message}`;
+      const n = (del || []).length;
+      return n ? `Brought back ${n} hidden agent${n === 1 ? "" : "s"}.` : "You don't have any hidden agents.";
+    }
+
+    const nameQ = (input.agent_name || "").toString().trim();
+    if (!nameQ) return "Restore which agent? Give me a name, or say 'all'.";
+    const { data: matches } = await supabase
+      .from("agent_directory")
+      .select("id, name")
+      .ilike("name", `%${nameQ}%`)
+      .limit(10);
+    if (!matches || matches.length === 0) return `Couldn't find an agent named "${nameQ}".`;
+    const ids = matches.map((m: any) => m.id);
+    const { data: del, error } = await supabase
+      .from("user_agent_status")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("status", "dismissed")
+      .in("agent_id", ids)
+      .select("agent_id");
+    if (error) return `Error restoring: ${error.message}`;
+    const n = (del || []).length;
+    return n ? `Brought back ${n} agent${n === 1 ? "" : "s"} matching "${nameQ}".` : `No hidden agents matched "${nameQ}".`;
+  } catch (e) {
+    return `Error restoring agents: ${e}`;
+  }
+}
+
 Deno.serve(async (req) => {
   console.log("copilot build: save_load + floor-in-quote (v4)");
   if (req.method === "OPTIONS") {
@@ -1418,7 +1911,7 @@ Deno.serve(async (req) => {
       if (trips && trips.length > 0) {
         const tripLines = trips.map((t: any) => {
           const ej = t.estimate_json || {};
-          const hourly = ej.effectiveHourlyRate ? `$${ej.effectiveHourlyRate.toFixed(2)}/hr` : "n/a";
+          const hourly = (ej.effectiveHourlyRate != null) ? `$${Number(ej.effectiveHourlyRate).toFixed(2)}/hr` : (t.effective_hourly != null ? `$${Number(t.effective_hourly).toFixed(2)}/hr` : "n/a");
           const winner = (t.estimated_net || 0) >= 0 ? "WINNER" : "LOSER";
           const contact = t.contacts ? `Contact: ${t.contacts.name}${t.contacts.company ? ' @ ' + t.contacts.company : ''}${t.contacts.phone ? ' Ph: ' + t.contacts.phone : ''}` : "No contact";
           const refs = [
@@ -1427,7 +1920,7 @@ Deno.serve(async (req) => {
             t.bol_number ? `BOL#: ${t.bol_number}` : null,
           ].filter(Boolean).join(" | ");
           const notesNote = t.notes ? ` | Notes: ${String(t.notes).replace(/\n/g, "; ")}` : "";
-          return `- ${t.trip_date} | ${t.trip_name || "unnamed"} | ${t.origin || "?"} to ${t.destination || "?"} | ${t.total_miles}mi | Gross: $${t.gross_pay} | Net: $${(t.estimated_net || 0).toFixed ? t.estimated_net.toFixed(2) : t.estimated_net} | ${hourly} | ${winner} | ${contact}${refs ? ' | ' + refs : ''}${notesNote}`;
+          return `- ${t.trip_date} | ${t.trip_name || "unnamed"} | ${t.origin || "?"} to ${t.destination || "?"} | ${t.total_miles}mi | Gross: $${t.gross_pay} | Net: $${t.estimated_net != null ? Number(t.estimated_net).toFixed(2) : (t.net_to_operator != null ? Number(t.net_to_operator).toFixed(2) : "0.00")} | ${hourly} | ${winner} | ${contact}${refs ? ' | ' + refs : ''}${notesNote}`;
         });
         tripContext = `\n\nDRIVER'S SAVED TRIPS:\n${tripLines.join("\n")}`;
       }
@@ -1467,6 +1960,7 @@ Deno.serve(async (req) => {
           .from("contacts")
           .select("name, company, phone, email, city, state, contact_type, star_rating, best_load_states")
           .eq("user_id", currentUser.id)
+          .is("deleted_at", null)
           .order("name", { ascending: true });
         if (contacts && contacts.length > 0) {
           const lines = contacts.map((c: any) => {
@@ -1487,6 +1981,29 @@ Deno.serve(async (req) => {
       console.error("Contacts query error:", e);
     }
 
+    let brokerDirectoryContext = "";
+    try {
+      const { data: brokers } = await supabase
+        .from("broker_directory")
+        .select("company, dispatch_phone, email, hq_state, coverage, freight_types, notes")
+        .eq("is_active", true)
+        .order("company", { ascending: true });
+      if (brokers && brokers.length > 0) {
+        const lines = brokers.map((b: any) => {
+          const cov = b.coverage ? ` | ${b.coverage}` : "";
+          const ft = b.freight_types ? ` | Freight: ${b.freight_types}` : "";
+          const ph = b.dispatch_phone ? ` | Dispatch: ${b.dispatch_phone}` : "";
+          const em = b.email ? ` | Email: ${b.email}` : "";
+          const hq = b.hq_state ? ` | HQ: ${b.hq_state}` : "";
+          const nt = b.notes ? ` | ${b.notes}` : "";
+          return `- ${b.company}${cov}${ft}${ph}${em}${hq}${nt}`;
+        });
+        brokerDirectoryContext = `\n\nBROKER DIRECTORY (shared national call list — every one runs nationwide, so choose by freight type, not state):\n${lines.join("\n")}`;
+      }
+    } catch (e) {
+      console.error("Broker directory query error:", e);
+    }
+
     // Load the driver's profile server-side so rate/overhead/etc. are always current.
     // (The app currently sends no profile, so this used to always fall back to defaults
     //  and the AI was permanently told "Target $50/hr" no matter what the driver set.)
@@ -1505,7 +2022,7 @@ Deno.serve(async (req) => {
       ? `\n\n${appGuide.trim()}\n\nWhen the driver asks how to do something in the app, point them to the right screen using this guide.`
       : "";
 
-    const fullSystem = SYSTEM_PROMPT + nameContext + tripContext + fleetContext + contactsContext + appContext;
+    const fullSystem = SYSTEM_PROMPT + nameContext + tripContext + fleetContext + contactsContext + brokerDirectoryContext + appContext;
 
     const messages: Array<{ role: string; content: any }> = [];
     if (Array.isArray(history)) {
@@ -1558,6 +2075,8 @@ Deno.serve(async (req) => {
           result = await recommendQuote(supabase, tool.input);
         } else if (tool.name === "save_load") {
           result = await saveLoad(supabase, tool.input);
+        } else if (tool.name === "get_load") {
+          result = await getLoad(supabase, tool.input);
         } else if (tool.name === "update_trip") {
           result = await updateTrip(supabase, tool.input);
         } else if (tool.name === "update_contact") {
@@ -1581,6 +2100,16 @@ Deno.serve(async (req) => {
         } else if (tool.name === "send_email") {
           actions.push({ type: "email", email: tool.input.email, subject: tool.input.subject, body: tool.input.body, contact_name: tool.input.contact_name || "" });
           result = `Email drafted to ${tool.input.contact_name || tool.input.email}.`;
+        } else if (tool.name === "query_agents") {
+          result = await queryAgents(supabase, tool.input);
+        } else if (tool.name === "whats_new_agents") {
+          result = await whatsNewAgents(supabase, tool.input);
+        } else if (tool.name === "add_agent_to_contacts") {
+          result = await addAgentToContacts(supabase, tool.input);
+        } else if (tool.name === "dismiss_agents") {
+          result = await dismissAgents(supabase, tool.input);
+        } else if (tool.name === "restore_agents") {
+          result = await restoreAgents(supabase, tool.input);
         }
         toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: result });
       }

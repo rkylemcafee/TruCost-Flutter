@@ -366,7 +366,7 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
   // − fuel they fronted on the card − cash advances.
   Widget _settlementCard() {
     final t = _trip!;
-    final gross = _n(t['gross_pay']) ?? _n(_ej['quotedGross']);
+    final gross = _n(t['agreed_gross']) ?? _n(t['quoted_gross']) ?? _n(t['offer_gross']) ?? _n(t['gross_pay']) ?? _n(_ej['bookedGross']) ?? _n(_ej['quotedGross']);
     final carrierPct = _n(t['carrier_cut_pct_at_time']) ?? _n(_ej['carrierCutPct']);
     final hisShare = (gross != null && carrierPct != null) ? gross * (1 - carrierPct / 100) : null;
     final reimb = _reimbursableTotal();
@@ -407,9 +407,12 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
     final fuel = _n(t['estimated_fuel_cost']) ?? _n(_ej['totalFuelCost']);
     final equip = _n(_ej['equipmentCost']);
     final overhead = _n(_ej['overheadCost']);
-    final net = _n(t['estimated_net']) ?? _n(_ej['netAtQuote']);
-    final hourly = _n(_ej['effectiveHourlyRate']);
-    final target = _n(_ej['targetHourly']);
+    final net = _n(t['net_to_operator']) ??
+        _n(t['estimated_net']) ??
+        _n(_ej['netToOperator']) ??
+        _n(_ej['netAtQuote']);
+    final hourly = _n(t['effective_hourly']) ?? _n(_ej['effectiveHourlyRate']);
+    final target = _n(_ej['hourlyBar']) ?? _n(_ej['targetHourly']);
 
     final rows = <Widget>[];
     if (fuel != null) rows.add(_row('Your fuel', '-${_money(fuel)}'));
@@ -643,8 +646,105 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
     return out;
   }
 
+  // Modal that makes the driver enter a PRO# before the sheet can be sent.
+  // Returns the entered PRO# on success, or null if he cancelled. Saves it to
+  // the trip and refreshes _trip so the PDF picks it up.
+  Future<String?> _promptForPro() async {
+    final ctrl = TextEditingController();
+    String? errorText;
+
+    final result = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('PRO # needed'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Your carrier lists settlements and fuel tickets by PRO #. '
+                'Add it before you send this trip sheet.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: ctrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.characters,
+                decoration: InputDecoration(
+                  labelText: 'Carrier PRO #',
+                  hintText: 'e.g. 20260006',
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                  errorText: errorText,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final v = ctrl.text.trim();
+                if (v.isEmpty) {
+                  setLocal(() => errorText = 'Enter a PRO # to continue');
+                  return;
+                }
+                Navigator.pop(ctx, v);
+              },
+              child: const Text('Save & continue'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == null) return null;
+
+    // Persist it. PRO# is uniquely indexed, so catch a collision and reprompt.
+    try {
+      await _supabase
+          .from('trips')
+          .update({'pro_number': result}).eq('id', _trip!['id']);
+      setState(() => _trip!['pro_number'] = result);
+      return result;
+    } on PostgrestException catch (e) {
+      final msg = '${e.message} ${e.details ?? ''}';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(msg.contains('trips_user_pro_number')
+              ? 'That PRO # is already on another load. Use a different one.'
+              : 'Could not save PRO #: ${e.message}'),
+          backgroundColor: Colors.red,
+        ));
+      }
+      return null; // don't send with an unsaved/duplicate PRO#
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save PRO #: $e'), backgroundColor: Colors.red),
+        );
+      }
+      return null;
+    }
+  }
+
   Future<void> _sharePdf() async {
     if (_trip == null) return;
+
+    // The carrier tracks fuel tickets by PRO#/carrier#, so a trip sheet without
+    // one is useless to them. This is the moment we make it mandatory: if there's
+    // no PRO# yet, make him enter one before the sheet can go out.
+    final existingPro = (_trip!['pro_number'] ?? '').toString().trim();
+    if (existingPro.isEmpty) {
+      final entered = await _promptForPro();
+      if (entered == null) return; // cancelled — don't send
+    }
 
     final images = _attachableImages();
     var attach = false;
@@ -785,7 +885,7 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
     if (_trailerLabel != null) loadRows.add(_pRow('Trailer', _trailerLabel!));
 
     // ── Settlement ──
-    final gross = _n(t['gross_pay']) ?? _n(_ej['quotedGross']);
+    final gross = _n(t['agreed_gross']) ?? _n(t['quoted_gross']) ?? _n(t['offer_gross']) ?? _n(t['gross_pay']) ?? _n(_ej['bookedGross']) ?? _n(_ej['quotedGross']);
     final carrierPct = _n(t['carrier_cut_pct_at_time']) ?? _n(_ej['carrierCutPct']);
     final hisShare = (gross != null && carrierPct != null) ? gross * (1 - carrierPct / 100) : null;
     final reimb = _reimbursableTotal();

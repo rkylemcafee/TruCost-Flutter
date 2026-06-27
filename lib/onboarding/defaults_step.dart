@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../common/state_picker_screen.dart';
 
 /// Step 4: Default values that pre-fill the calculator.
 ///
@@ -23,6 +24,10 @@ class _DefaultsStepState extends State<DefaultsStep> {
   final _hourlyRateCtrl = TextEditingController(text: '50');
   final _annualHoursCtrl = TextEditingController(text: '2500');
   final _overheadCtrl = TextEditingController(text: '15');
+  final _cargoInsCtrl = TextEditingController(text: '100000');
+  final _hotelRateCtrl = TextEditingController(text: '120');
+  bool _teamOperation = false;
+  List<String> _runStates = kUsStates.keys.toList();
 
   bool _loading = false;
 
@@ -40,6 +45,10 @@ class _DefaultsStepState extends State<DefaultsStep> {
         'hourly_rate': double.tryParse(_hourlyRateCtrl.text) ?? 50,
         'annual_work_hours': double.tryParse(_annualHoursCtrl.text) ?? 2500,
         'overhead_pct': double.tryParse(_overheadCtrl.text) ?? 15,
+        'cargo_insurance': double.tryParse(_cargoInsCtrl.text) ?? 100000,
+        'hotel_rate': double.tryParse(_hotelRateCtrl.text) ?? 120,
+        'team_operation': _teamOperation,
+        'run_states': _runStates,
       }).eq('user_id', user.id);
 
       widget.onNext();
@@ -62,10 +71,12 @@ class _DefaultsStepState extends State<DefaultsStep> {
     _hourlyRateCtrl.dispose();
     _annualHoursCtrl.dispose();
     _overheadCtrl.dispose();
+    _cargoInsCtrl.dispose();
+    _hotelRateCtrl.dispose();
     super.dispose();
   }
 
-  Widget _field(TextEditingController ctrl, String label, {String? suffix}) {
+  Widget _field(TextEditingController ctrl, String label, {String? prefix, String? suffix}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
@@ -73,11 +84,26 @@ class _DefaultsStepState extends State<DefaultsStep> {
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         decoration: InputDecoration(
           labelText: label,
+          prefixText: prefix,
           suffixText: suffix,
           border: const OutlineInputBorder(),
         ),
       ),
     );
+  }
+
+  String _runStatesLabel() {
+    if (_runStates.isEmpty) return 'None set — tap to choose';
+    if (_runStates.length >= kUsStates.length) return 'All 48 states';
+    return _runStates.join(', ');
+  }
+
+  Future<void> _pickRunStates() async {
+    final result = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(builder: (_) => StatePickerScreen(initial: _runStates, title: 'Where You Run')),
+    );
+    if (result != null) setState(() => _runStates = result);
   }
 
   @override
@@ -115,6 +141,36 @@ class _DefaultsStepState extends State<DefaultsStep> {
           _field(_hourlyRateCtrl, 'Hourly Rate', suffix: '\$/hr'),
           _field(_annualHoursCtrl, 'Annual Working Hours', suffix: 'hrs/yr'),
           _field(_overheadCtrl, 'Overhead', suffix: '%'),
+
+          const SizedBox(height: 8),
+          const Divider(),
+          const SizedBox(height: 8),
+          const Text('Coverage & how you run',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 12),
+          _field(_cargoInsCtrl, 'Cargo Insurance', prefix: '\$'),
+          SwitchListTile(
+            title: const Text('Team operation'),
+            subtitle: const Text('You run with a co-driver'),
+            value: _teamOperation,
+            onChanged: (v) => setState(() => _teamOperation = v),
+            contentPadding: EdgeInsets.zero,
+          ),
+          const SizedBox(height: 8),
+          _field(_hotelRateCtrl, 'Hotel Rate (overnight, no sleeper)', prefix: '\$', suffix: '/night'),
+          InkWell(
+            onTap: _pickRunStates,
+            child: InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Where you like to run',
+                border: OutlineInputBorder(),
+                suffixIcon: Icon(Icons.map_outlined, size: 20),
+              ),
+              child: Text(_runStatesLabel(),
+                  style: TextStyle(fontSize: 14, color: _runStates.isEmpty ? Colors.grey[500] : Colors.black87)),
+            ),
+          ),
+
           const SizedBox(height: 20),
           ElevatedButton(
             onPressed: _loading ? null : _save,

@@ -4,6 +4,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../common/voice_helper.dart';
 
 typedef ResultCallback = void Function(String recognizedWords, bool isFinal);
 typedef SessionEndedCallback = void Function();
@@ -15,6 +16,14 @@ class CopilotAudioService {
 
   bool _isListening = false;
   bool _isStarting = false;
+
+  // iOS flutter_tts sometimes never fires its completion handler (especially
+  // after longer utterances), which strands the hands-free loop on "assistant's
+  // turn". We keep our own reference to the completion callback and a safety
+  // timer so the turn ALWAYS hands back, callback or not.
+  VoidCallback? _onSpeakingComplete;
+  Timer? _speakWatchdog;
+  bool _speakHandled = false;
 
   Future<void> setup({
     required VoidCallback onSpeakingStart,
@@ -44,8 +53,11 @@ class CopilotAudioService {
     await tts.setSpeechRate(0.5);
     await tts.setPitch(1.0);
 
+    _onSpeakingComplete = onSpeakingComplete;
     tts.setStartHandler(onSpeakingStart);
-    tts.setCompletionHandler(onSpeakingComplete);
+    // Route the engine's completion through our guard so a duplicate (engine
+    // fires AND watchdog fires) only triggers the relisten once.
+    tts.setCompletionHandler(() => _fireSpeakComplete());
     tts.setCancelHandler(onSpeakingCancel);
 
     try {
@@ -86,6 +98,8 @@ class CopilotAudioService {
   }
 
   Future<void> loadVoiceFromProfile(SupabaseClient supabase) async {
+    String savedName = '';
+    String savedLocale = '';
     try {
       final user = supabase.auth.currentUser;
       if (user != null) {
@@ -93,23 +107,67 @@ class CopilotAudioService {
             .from('profiles')
             .select('copilot_voice_name, copilot_voice_locale')
             .eq('user_id', user.id)
-            .single();
-        final name = (p['copilot_voice_name'] ?? '').toString();
-        final locale = (p['copilot_voice_locale'] ?? '').toString();
-        if (name.isNotEmpty && locale.isNotEmpty) {
-          await tts.setVoice({"name": name, "locale": locale});
-          return;
-        }
+            .maybeSingle();
+        savedName = (p?['copilot_voice_name'] ?? '').toString();
+        savedLocale = (p?['copilot_voice_locale'] ?? '').toString();
       }
     } catch (_) {}
-    await loadCustomVoice('', '');
+
+    // Honor the driver's saved voice if it's installed on THIS device;
+    // otherwise auto-pick the best installed English voice. No saved choice
+    // also lands on best — so everyone gets the best voice they have, instead
+    // of a hardcoded default that may not even be downloaded.
+    final applied = await VoiceHelper.applySavedOrBest(
+      tts,
+      savedName: savedName.isEmpty ? null : savedName,
+      lang: 'en',
+    );
+
+    // Last-ditch fallback if the device somehow lists no English voices.
+    if (applied == null) {
+      await loadCustomVoice(savedName, savedLocale);
+    }
+  }
+
+  // Fire the completion callback exactly once per utterance, whether it comes
+  // from the real engine handler or our safety watchdog.
+  void _fireSpeakComplete() {
+    if (_speakHandled) return;
+    _speakHandled = true;
+    _speakWatchdog?.cancel();
+    _speakWatchdog = null;
+    _onSpeakingComplete?.call();
   }
 
   Future<void> speak(String text) async {
-    await tts.speak(text);
+    _speakHandled = false;
+    _speakWatchdog?.cancel();
+
+    // Estimate how long this utterance should take, then add headroom. At
+    // setSpeechRate(0.5) iOS speaks ~13-15 chars/sec; we budget conservatively
+    // (~11 chars/sec) plus a 4s floor so short replies still get a real window.
+    final estMs = (text.length / 11.0 * 1000).round();
+    final budget = Duration(milliseconds: (estMs + 4000).clamp(4000, 60000));
+
+    // If the engine's completion handler never fires (a known iOS flutter_tts
+    // problem), this watchdog fires it for us so the mic reopens.
+    _speakWatchdog = Timer(budget, () {
+      debugPrint('TTS watchdog fired — engine completion never came; handing turn back.');
+      _fireSpeakComplete();
+    });
+
+    try {
+      await tts.speak(text);
+    } catch (e) {
+      debugPrint('tts.speak threw: $e');
+      _fireSpeakComplete(); // don't strand the loop on a speak failure
+    }
   }
 
   Future<void> stopSpeaking() async {
+    _speakWatchdog?.cancel();
+    _speakWatchdog = null;
+    _speakHandled = true; // we're deliberately stopping; don't let watchdog re-fire
     await tts.stop();
   }
 

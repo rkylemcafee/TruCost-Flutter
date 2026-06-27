@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import '../help/help_content.dart';
 import 'rig_tab.dart';
+import '../common/state_picker_screen.dart';
 
 /// Tabbed settings — the way back into everything onboarding set up.
 ///   • Preferences: co-pilot name, your name, take-home target, password
@@ -31,6 +32,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   final _carrierCutCtrl = TextEditingController();
   final _overheadCtrl = TextEditingController();
   final _annualHoursCtrl = TextEditingController();
+  final _cargoInsCtrl = TextEditingController();
+  final _hotelRateCtrl = TextEditingController();
+  bool _teamOperation = false;
+  List<String> _runStates = <String>[];
 
   // Authority info for trip-sheet headers.
   final _operatorNameCtrl = TextEditingController();
@@ -82,7 +87,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           .select(
               'copilot_name, preferred_name, hourly_rate, carrier_cut_pct, overhead_pct, '
               'annual_work_hours, splash_photo_url, '
-              'operator_name, mc_number, dot_number, carrier_name, carrier_fuel_card')
+              'operator_name, mc_number, dot_number, carrier_name, carrier_fuel_card, '
+              'cargo_insurance, team_operation, hotel_rate, run_states')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -98,6 +104,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       _dotCtrl.text = (p?['dot_number'] ?? '').toString();
       _carrierCtrl.text = (p?['carrier_name'] ?? '').toString();
       _carrierFuelCard = p?['carrier_fuel_card'] == true;
+      _cargoInsCtrl.text = _numStr(p?['cargo_insurance']);
+      _hotelRateCtrl.text = _numStr(p?['hotel_rate']);
+      _teamOperation = p?['team_operation'] == true;
+      _runStates = (p?['run_states'] as List?)?.cast<String>() ?? <String>[];
     } catch (e) {
       _toast('Could not load settings: $e');
     } finally {
@@ -137,6 +147,10 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       addText('dot_number', _dotCtrl);
       addText('carrier_name', _carrierCtrl);
       updates['carrier_fuel_card'] = _carrierFuelCard;
+      addNum('cargo_insurance', _cargoInsCtrl);
+      addNum('hotel_rate', _hotelRateCtrl);
+      updates['team_operation'] = _teamOperation;
+      updates['run_states'] = _runStates;
 
       await _supabase.from('profiles').update(updates).eq('user_id', user.id);
 
@@ -189,6 +203,8 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     _carrierCutCtrl.dispose();
     _overheadCtrl.dispose();
     _annualHoursCtrl.dispose();
+    _cargoInsCtrl.dispose();
+    _hotelRateCtrl.dispose();
     _operatorNameCtrl.dispose();
     _mcCtrl.dispose();
     _dotCtrl.dispose();
@@ -204,6 +220,12 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         actions: const [HelpButton(HelpScreens.settings)],
         bottom: TabBar(
           controller: _tab,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          indicatorWeight: 3,
+          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15),
           tabs: const [
             Tab(text: 'Preferences'),
             Tab(text: 'Business'),
@@ -532,9 +554,74 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         const SizedBox(height: 10),
         const Text('MPG and road speed live on your truck — set them under the Rig tab.',
             style: TextStyle(fontSize: 11, color: Colors.grey)),
+
+        const SizedBox(height: 24),
+        const Text('Coverage & How You Run',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+        const SizedBox(height: 4),
+        const Text('Used to match you to the right agents and to price overnights.',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 12),
+        _numberField(_cargoInsCtrl, 'Cargo insurance you carry', prefix: '\$'),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, children: [
+          _insChip('100K', 100000),
+          _insChip('500K', 500000),
+          _insChip('1M', 1000000),
+        ]),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          title: const Text('Team operation'),
+          subtitle: const Text('You run with a co-driver'),
+          value: _teamOperation,
+          onChanged: (v) => setState(() => _teamOperation = v),
+          contentPadding: EdgeInsets.zero,
+        ),
+        const SizedBox(height: 8),
+        _numberField(_hotelRateCtrl, 'Hotel rate (overnight, no sleeper)', prefix: '\$', suffix: '/night'),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: _pickRunStates,
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'Where you like to run',
+              border: OutlineInputBorder(),
+              isDense: true,
+              suffixIcon: Icon(Icons.map_outlined, size: 20),
+            ),
+            child: Text(_runStatesLabel(),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: _runStates.isEmpty ? Colors.grey[500] : Colors.black87,
+                )),
+          ),
+        ),
         const SizedBox(height: 12),
       ],
     );
+  }
+
+  String _runStatesLabel() {
+    if (_runStates.isEmpty) return 'None set — tap to choose';
+    if (_runStates.length >= kUsStates.length) return 'All 48 states';
+    return _runStates.join(', ');
+  }
+
+  Widget _insChip(String label, int value) {
+    return ActionChip(
+      label: Text('\$$label'),
+      onPressed: () => setState(() => _cargoInsCtrl.text = value.toString()),
+    );
+  }
+
+  Future<void> _pickRunStates() async {
+    final result = await Navigator.push<List<String>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StatePickerScreen(initial: _runStates, title: 'Where You Run'),
+      ),
+    );
+    if (result != null) setState(() => _runStates = result);
   }
 
   Widget _numberField(TextEditingController ctrl, String label, {String? prefix, String? suffix}) {

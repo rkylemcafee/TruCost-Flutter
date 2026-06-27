@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'config/supabase_config.dart';
-import 'auth/auth_gate.dart';
+import 'splash_intro.dart';
 import 'theme/trucost_theme.dart';
 
 /// Goes in: lib/main.dart
@@ -26,7 +26,7 @@ class TruCostApp extends StatelessWidget {
       title: 'TruCost',
       debugShowCheckedModeBanner: false,
       theme: TruCostTheme.theme(TruCostThemeId.green),
-      home: const AuthGate(),
+      home: const SplashIntro(),
     );
   }
 }

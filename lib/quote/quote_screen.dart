@@ -442,31 +442,32 @@ class _QuoteScreenState extends State<QuoteScreen> {
       final user = _supabase.auth.currentUser;
       if (user == null) throw Exception('Not signed in');
 
-      await _supabase.from('quotes').insert({
+      // A quote IS a trip at stage 'quote'. We save into the unified `trips`
+      // table so that when the load is won we just flip the stage and fill
+      // agreed_gross — same record, no copy. offer_gross / agreed_gross stay
+      // null until negotiation. Fields without a dedicated column (the floor,
+      // the margin, per-mile rates, overhead) ride in estimate_json so the
+      // Co-Pilot can read them back and defend the floor during negotiation.
+      await _supabase.from('trips').insert({
         'user_id': user.id,
-        'quote_name': quoteName,
+        'trip_name': quoteName,
         'truck_unit_id': _truckUnitId,
         'trailer_unit_id': _trailerUnitId,
         'contact_id': _selectedBroker?['id'],
         'origin': origin.isNotEmpty ? origin : null,
         'destination': dest.isNotEmpty ? dest : null,
-        'quote_date': now.toIso8601String().substring(0, 10),
-        'include_deadhead': _includeDeadhead,
+        'trip_date': now.toIso8601String().substring(0, 10),
         'deadhead_miles': r.deadheadMiles,
         'loaded_miles': r.loadedMiles, // includes the out-of-route bump
-        'total_miles': r.totalMiles,
+        // total_miles is a GENERATED column in trips (loaded + deadhead) —
+        // the database computes it; we must not insert it.
         'fuel_price_used': _fuelPrice,
-        'total_cost': r.totalCosts,
-        'target_hourly': r.targetHourly,
-        'carrier_cut_pct': _carrierCutPct,
-        'overhead_pct': _overheadPct,
-        'floor_gross': _floorGross,
-        'margin_pct': _marginPct,
+        'carrier_cut_pct_at_time': _carrierCutPct,
         'quoted_gross': _quotedGross,
-        'quoted_per_loaded_mile': _perLoadedMile,
-        'quoted_per_total_mile': _perTotalMile,
-        'status': 'quoted',
+        'stage': 'quote',
+        'status': 'saved',
         'estimate_json': {
+          'includeDeadhead': _includeDeadhead,
           'baseLoadedMiles': _baseLoaded,
           'outOfRoutePct': _outOfRoutePct,
           'effectiveLoadedMiles': r.loadedMiles,
@@ -476,15 +477,21 @@ class _QuoteScreenState extends State<QuoteScreen> {
           'equipmentCost': r.equipmentCost,
           'tollsCost': r.tollsCost,
           'overheadCost': r.overheadCost,
+          'overheadPct': _overheadPct,
           'totalCosts': r.totalCosts,
+          'totalCost': r.totalCosts,
           'totalMiles': r.totalMiles,
           'totalHours': r.totalHours,
           'costPerMile': r.costPerMile,
           'minimumGrossNeeded': r.minimumGrossNeeded,
           'minimumPerMile': r.minimumPerMile,
           'targetHourly': r.targetHourly,
+          'carrierCutPct': _carrierCutPct,
+          'floorGross': _floorGross,
           'marginPct': _marginPct,
           'quotedGross': _quotedGross,
+          'quotedPerLoadedMile': _perLoadedMile,
+          'quotedPerTotalMile': _perTotalMile,
         },
       });
 
