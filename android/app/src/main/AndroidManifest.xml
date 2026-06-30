@@ -1,3 +1,4 @@
+
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
@@ -26,6 +27,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- image_cropper (UCrop) crop screen - required on Android or the
+             cropper crashes with "Reply already submitted". -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"/>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
@@ -57,4 +66,3 @@
         </intent>
     </queries>
 </manifest>
-

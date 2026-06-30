@@ -25,7 +25,14 @@ class _RigStepState extends State<RigStep> {
   String _truckCostMode = 'owned';
   final _truckPriceCtrl = TextEditingController(text: '140000');
   final _truckDeprecCtrl = TextEditingController(text: '20');
+  final _truckResidualCtrl = TextEditingController(text: '56000'); // ~40% of 140k
   final _truckPaymentCtrl = TextEditingController();
+  // MPG / speed / sleeper live on the truck (the iron), not the profile.
+  final _truckEmptyMpgCtrl = TextEditingController(text: '8');
+  final _truckLoadedMpgCtrl = TextEditingController(text: '6');
+  final _truckSpeedEmptyCtrl = TextEditingController(text: '60');
+  final _truckSpeedLoadedCtrl = TextEditingController(text: '55');
+  bool _truckHasSleeper = true;
 
   // Trailer
   String _trailerType = 'flatbed';
@@ -33,6 +40,7 @@ class _RigStepState extends State<RigStep> {
   String _trailerCostMode = 'owned';
   final _trailerPriceCtrl = TextEditingController(text: '40000');
   final _trailerDeprecCtrl = TextEditingController(text: '20');
+  final _trailerResidualCtrl = TextEditingController(text: '24000'); // ~60% of 40k
   final _trailerPaymentCtrl = TextEditingController();
 
   // Photo
@@ -100,7 +108,7 @@ class _RigStepState extends State<RigStep> {
       if (user == null) return;
 
       // Save truck
-      await _supabase.from('units').insert({
+      final truckRow = await _supabase.from('units').insert({
         'user_id': user.id,
         'unit_type': 'truck',
         'unit_number': _truckNumCtrl.text.trim(),
@@ -111,13 +119,23 @@ class _RigStepState extends State<RigStep> {
         'depreciation_pct': _truckCostMode == 'owned'
             ? double.tryParse(_truckDeprecCtrl.text)
             : null,
+        'residual_value': _truckCostMode == 'owned'
+            ? double.tryParse(_truckResidualCtrl.text)
+            : null,
         'monthly_payment': _truckCostMode == 'financed'
             ? double.tryParse(_truckPaymentCtrl.text)
             : null,
-      });
+        // MPG / speed / sleeper — the truck's own numbers
+        'empty_mpg': double.tryParse(_truckEmptyMpgCtrl.text),
+        'loaded_mpg': double.tryParse(_truckLoadedMpgCtrl.text),
+        'speed_empty': double.tryParse(_truckSpeedEmptyCtrl.text),
+        'speed_loaded': double.tryParse(_truckSpeedLoadedCtrl.text),
+        'has_sleeper_berth': _truckHasSleeper,
+        'is_active': true,
+      }).select('id').single();
 
       // Save trailer
-      await _supabase.from('units').insert({
+      final trailerRow = await _supabase.from('units').insert({
         'user_id': user.id,
         'unit_type': 'trailer',
         'trailer_subtype': _trailerType,
@@ -129,10 +147,20 @@ class _RigStepState extends State<RigStep> {
         'depreciation_pct': _trailerCostMode == 'owned'
             ? double.tryParse(_trailerDeprecCtrl.text)
             : null,
+        'residual_value': _trailerCostMode == 'owned'
+            ? double.tryParse(_trailerResidualCtrl.text)
+            : null,
         'monthly_payment': _trailerCostMode == 'financed'
             ? double.tryParse(_trailerPaymentCtrl.text)
             : null,
-      });
+        'is_active': true,
+      }).select('id').single();
+
+      // Mark these as the operator's active rig.
+      await _supabase.from('profiles').update({
+        'active_truck_id': truckRow['id'],
+        'active_trailer_id': trailerRow['id'],
+      }).eq('user_id', user.id);
 
       widget.onNext();
     } catch (e) {
@@ -150,10 +178,16 @@ class _RigStepState extends State<RigStep> {
     _truckNumCtrl.dispose();
     _truckPriceCtrl.dispose();
     _truckDeprecCtrl.dispose();
+    _truckResidualCtrl.dispose();
     _truckPaymentCtrl.dispose();
+    _truckEmptyMpgCtrl.dispose();
+    _truckLoadedMpgCtrl.dispose();
+    _truckSpeedEmptyCtrl.dispose();
+    _truckSpeedLoadedCtrl.dispose();
     _trailerNumCtrl.dispose();
     _trailerPriceCtrl.dispose();
     _trailerDeprecCtrl.dispose();
+    _trailerResidualCtrl.dispose();
     _trailerPaymentCtrl.dispose();
     super.dispose();
   }
@@ -211,6 +245,15 @@ class _RigStepState extends State<RigStep> {
                   labelText: 'Annual Depreciation (%)',
                   border: OutlineInputBorder()),
             ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _truckResidualCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Residual Value (\$)',
+                  helperText: 'What it\'s worth at the end — only the rest is depreciated',
+                  border: OutlineInputBorder()),
+            ),
           ] else ...[
             TextField(
               controller: _truckPaymentCtrl,
@@ -220,6 +263,60 @@ class _RigStepState extends State<RigStep> {
                   border: OutlineInputBorder()),
             ),
           ],
+
+          const SizedBox(height: 16),
+          // ── Truck performance: MPG / speed / sleeper (the truck's own numbers) ──
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _truckEmptyMpgCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: 'Empty MPG', border: OutlineInputBorder()),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _truckLoadedMpgCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: 'Loaded MPG', border: OutlineInputBorder()),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _truckSpeedEmptyCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: 'Empty Speed', suffixText: 'mph', border: OutlineInputBorder()),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _truckSpeedLoadedCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                      labelText: 'Loaded Speed', suffixText: 'mph', border: OutlineInputBorder()),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          SwitchListTile(
+            title: const Text('Sleeper berth'),
+            subtitle: const Text('Off = you pay for hotels on overnight runs'),
+            value: _truckHasSleeper,
+            onChanged: (v) => setState(() => _truckHasSleeper = v),
+            contentPadding: EdgeInsets.zero,
+          ),
 
           const SizedBox(height: 24),
           const Divider(),
@@ -277,6 +374,15 @@ class _RigStepState extends State<RigStep> {
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(
                   labelText: 'Annual Depreciation (%)',
+                  border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _trailerResidualCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                  labelText: 'Residual Value (\$)',
+                  helperText: 'What it\'s worth at the end — only the rest is depreciated',
                   border: OutlineInputBorder()),
             ),
           ] else ...[

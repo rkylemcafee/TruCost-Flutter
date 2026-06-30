@@ -2,7 +2,7 @@ name: trucost_flutter
 description: "TruCost Co-Pilot — true cost-per-mile calculator and AI assistant for owner-operators."
 publish_to: 'none'
 
-version: 2.0.0+2
+version: 2.0.0+3
 
 environment:
   sdk: ^3.12.1

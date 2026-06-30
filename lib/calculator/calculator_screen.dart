@@ -114,6 +114,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         _truck = UnitCost(
           mode: t['cost_mode'] == 'financed' ? CostMode.financed : CostMode.owned,
           purchasePrice: _toDouble(t['purchase_price'], 0),
+          residualValue: _toDouble(t['residual_value'], 0),
           depreciationRate: _toDouble(t['depreciation_pct'], 20) / 100,
           monthlyPayment: _toDouble(t['monthly_payment'], 0),
         );
@@ -144,6 +145,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         _trailer = UnitCost(
           mode: t['cost_mode'] == 'financed' ? CostMode.financed : CostMode.owned,
           purchasePrice: _toDouble(t['purchase_price'], 0),
+          residualValue: _toDouble(t['residual_value'], 0),
           depreciationRate: _toDouble(t['depreciation_pct'], 20) / 100,
           monthlyPayment: _toDouble(t['monthly_payment'], 0),
         );

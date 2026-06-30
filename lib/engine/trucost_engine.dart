@@ -25,23 +25,27 @@ enum CostMode { owned, financed }
 class UnitCost {
   final CostMode mode;
   final double purchasePrice;
+  final double residualValue; // what the iron is still worth at the end
   final double monthlyPayment;
   final double depreciationRate;
 
   const UnitCost({
     required this.mode,
     this.purchasePrice = 0.0,
+    this.residualValue = 0.0,
     this.monthlyPayment = 0.0,
     this.depreciationRate = 0.20,
   });
 
   factory UnitCost.owned({
     required double value,
+    double residualValue = 0.0,
     double depreciationRate = 0.20,
   }) =>
       UnitCost(
         mode: CostMode.owned,
         purchasePrice: value,
+        residualValue: residualValue,
         depreciationRate: depreciationRate,
       );
 
@@ -51,7 +55,11 @@ class UnitCost {
   double get annualCost {
     switch (mode) {
       case CostMode.owned:
-        return purchasePrice * depreciationRate;
+        // Only the value the truck actually LOSES is depreciated — purchase
+        // price down to its residual (resale/salvage) value, never to zero.
+        final depreciable = purchasePrice - residualValue;
+        final base = depreciable < 0 ? 0.0 : depreciable;
+        return base * depreciationRate;
       case CostMode.financed:
         return monthlyPayment * 12;
     }

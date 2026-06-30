@@ -151,6 +151,10 @@ class _RigTabState extends State<RigTab> {
         text: existing != null ? _numStr(existing['purchase_price']) : (isTruck ? '140000' : '40000'));
     final deprecCtrl = TextEditingController(
         text: existing != null ? _numStr(existing['depreciation_pct']) : '20');
+    final residualCtrl = TextEditingController(
+        text: existing != null
+            ? _numStr(existing['residual_value'])
+            : (isTruck ? '56000' : '24000')); // truck ~40% of 140k, trailer ~60% of 40k
     final paymentCtrl = TextEditingController(
         text: existing != null ? _numStr(existing['monthly_payment']) : '');
     final emptyMpgCtrl =
@@ -163,6 +167,8 @@ class _RigTabState extends State<RigTab> {
         TextEditingController(text: existing != null ? _numStr(existing['speed_loaded']) : '55');
     String costMode = (existing?['cost_mode'] ?? 'owned').toString();
     String trailerSubtype = (existing?['trailer_subtype'] ?? 'flatbed').toString();
+    // Sleeper berth defaults to true for a new truck (most have one).
+    bool hasSleeper = existing != null ? (existing['has_sleeper_berth'] == true) : true;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -225,6 +231,17 @@ class _RigTabState extends State<RigTab> {
                         isDense: true,
                         border: OutlineInputBorder()),
                   ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: residualCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Residual value',
+                        prefixText: '\$ ',
+                        helperText: 'Worth at the end — only the rest depreciates',
+                        isDense: true,
+                        border: OutlineInputBorder()),
+                  ),
                 ] else ...[
                   TextField(
                     controller: paymentCtrl,
@@ -277,6 +294,13 @@ class _RigTabState extends State<RigTab> {
                       ),
                     ),
                   ]),
+                  SwitchListTile(
+                    title: const Text('Sleeper berth'),
+                    subtitle: const Text('Off = you pay for hotels on overnight runs'),
+                    value: hasSleeper,
+                    onChanged: (v) => setD(() => hasSleeper = v),
+                    contentPadding: EdgeInsets.zero,
+                  ),
                 ],
               ],
             ),
@@ -297,6 +321,7 @@ class _RigTabState extends State<RigTab> {
       'cost_mode': costMode,
       'purchase_price': costMode == 'owned' ? double.tryParse(priceCtrl.text.trim()) : null,
       'depreciation_pct': costMode == 'owned' ? double.tryParse(deprecCtrl.text.trim()) : null,
+      'residual_value': costMode == 'owned' ? double.tryParse(residualCtrl.text.trim()) : null,
       'monthly_payment': costMode == 'financed' ? double.tryParse(paymentCtrl.text.trim()) : null,
     };
     if (isTruck) {
@@ -304,6 +329,7 @@ class _RigTabState extends State<RigTab> {
       data['loaded_mpg'] = double.tryParse(loadedMpgCtrl.text.trim());
       data['speed_empty'] = double.tryParse(speedEmptyCtrl.text.trim());
       data['speed_loaded'] = double.tryParse(speedLoadedCtrl.text.trim());
+      data['has_sleeper_berth'] = hasSleeper;
     } else {
       data['trailer_subtype'] = trailerSubtype;
     }
