@@ -10,11 +10,12 @@ import 'quotes.dart';
 class DeveloperBioScreen extends StatelessWidget {
   const DeveloperBioScreen({super.key});
 
+  // Do NOT gate on canLaunchUrl. On Android 11+ it returns false for
+  // https/tel/mailto unless the schemes are declared in AndroidManifest.xml,
+  // which silently blocked these donate links (worked on iPhone, did nothing
+  // on Android). Calling launchUrl directly fixes it — same fix as AboutScreen.
   Future<void> _open(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   @override
@@ -122,9 +123,9 @@ class DeveloperBioScreen extends StatelessWidget {
           const SizedBox(height: 12),
 
           // ── A Personal Note — Cancer & Moffitt ──
-          // NOTE TO KYLE: this is your story in your words. The medical details
-          // below are from the iOS version (~a year old) and now read out of date
-          // ("halfway through treatment"). Update this copy to today's status.
+          // NOTE TO KYLE: updated July 2026 to current status — three months off
+          // immunotherapy, restarting August 2026 with a confirming scan. Refresh
+          // this again as her treatment plan moves forward.
           Row(
             children: [
               const Icon(Icons.favorite, color: Colors.pink, size: 22),
@@ -145,10 +146,15 @@ class DeveloperBioScreen extends StatelessWidget {
             "pelvic bone.",
           ),
           _note(
-            "We turned to Moffitt Cancer Center in Tampa. What they did for her is "
-            "nothing short of remarkable. Four scans into immunotherapy — including "
-            "one just last week — there is nothing. Not a trace. She is halfway "
-            "through treatment and the cancer is gone from every scan.",
+            "We turned to Moffitt Cancer Center in Tampa. What they did for her "
+            "is nothing short of remarkable. Scan after scan into immunotherapy, "
+            "there is nothing. Not a trace — the cancer is gone from every scan.",
+          ),
+          _note(
+            "Her doctors were confident enough to give her three months off "
+            "immunotherapy. She starts back in August 2026 with a scan to make "
+            "sure nothing has changed over those three months. If she's still "
+            "clear, she'll continue immunotherapy for another one to two years.",
           ),
           _note(
             "If this app has brought you value, please consider honoring her fight "

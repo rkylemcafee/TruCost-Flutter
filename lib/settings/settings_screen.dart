@@ -34,8 +34,18 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   final _annualHoursCtrl = TextEditingController();
   final _cargoInsCtrl = TextEditingController();
   final _hotelRateCtrl = TextEditingController();
+  final _fscRateCtrl = TextEditingController();
+  final _fscReceivedCtrl = TextEditingController();
+  final _insRateCtrl = TextEditingController();
   bool _teamOperation = false;
   List<String> _runStates = <String>[];
+
+  // Optional device + contact (profiles.device_* / profiles.phone)
+  bool _deviceIphone = false;
+  bool _deviceAndroidPhone = false;
+  bool _deviceIpad = false;
+  bool _deviceAndroidTablet = false;
+  final _phoneCtrl = TextEditingController();
 
   // Authority info for trip-sheet headers.
   final _operatorNameCtrl = TextEditingController();
@@ -52,7 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
   String? _splashUrl;
   bool _uploadingPhoto = false;
 
-  static const List<String> _presets = ['TruCost Co-Pilot', 'Dave', 'Charlie'];
+  static const List<String> _presets = ['Gigi', 'TruCost Co-Pilot', 'Dave', 'Charlie'];
 
   @override
   void initState() {
@@ -88,7 +98,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               'copilot_name, preferred_name, hourly_rate, carrier_cut_pct, overhead_pct, '
               'annual_work_hours, splash_photo_url, '
               'operator_name, mc_number, dot_number, carrier_name, carrier_fuel_card, '
-              'cargo_insurance, team_operation, hotel_rate, run_states')
+              'cargo_insurance, team_operation, hotel_rate, run_states, '
+              'device_iphone, device_android_phone, device_ipad, device_android_tablet, phone, '
+              'fsc_rate, fsc_pct_received, carrier_insurance_pct')
           .eq('user_id', user.id)
           .maybeSingle();
 
@@ -106,8 +118,16 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       _carrierFuelCard = p?['carrier_fuel_card'] == true;
       _cargoInsCtrl.text = _numStr(p?['cargo_insurance']);
       _hotelRateCtrl.text = _numStr(p?['hotel_rate']);
+      _fscRateCtrl.text = _numStr(p?['fsc_rate'] ?? 6);
+      _fscReceivedCtrl.text = _numStr(p?['fsc_pct_received'] ?? 100);
+      _insRateCtrl.text = _numStr(p?['carrier_insurance_pct'] ?? 3);
       _teamOperation = p?['team_operation'] == true;
       _runStates = (p?['run_states'] as List?)?.cast<String>() ?? <String>[];
+      _deviceIphone = p?['device_iphone'] == true;
+      _deviceAndroidPhone = p?['device_android_phone'] == true;
+      _deviceIpad = p?['device_ipad'] == true;
+      _deviceAndroidTablet = p?['device_android_tablet'] == true;
+      _phoneCtrl.text = (p?['phone'] ?? '').toString();
     } catch (e) {
       _toast('Could not load settings: $e');
     } finally {
@@ -123,7 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
 
       final updates = <String, dynamic>{};
       final cn = _copilotNameCtrl.text.trim();
-      updates['copilot_name'] = cn.isEmpty ? 'Co-Pilot' : cn;
+      updates['copilot_name'] = cn.isEmpty ? 'Gigi' : cn;
       final dn = _driverNameCtrl.text.trim();
       updates['preferred_name'] = dn.isEmpty ? null : dn;
 
@@ -149,8 +169,17 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       updates['carrier_fuel_card'] = _carrierFuelCard;
       addNum('cargo_insurance', _cargoInsCtrl);
       addNum('hotel_rate', _hotelRateCtrl);
+      addNum('fsc_rate', _fscRateCtrl);
+      addNum('fsc_pct_received', _fscReceivedCtrl);
+      addNum('carrier_insurance_pct', _insRateCtrl);
       updates['team_operation'] = _teamOperation;
       updates['run_states'] = _runStates;
+      updates['device_iphone'] = _deviceIphone;
+      updates['device_android_phone'] = _deviceAndroidPhone;
+      updates['device_ipad'] = _deviceIpad;
+      updates['device_android_tablet'] = _deviceAndroidTablet;
+      final ph = _phoneCtrl.text.trim();
+      updates['phone'] = ph.isEmpty ? null : ph;
 
       await _supabase.from('profiles').update(updates).eq('user_id', user.id);
 
@@ -209,59 +238,89 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     _mcCtrl.dispose();
     _dotCtrl.dispose();
     _carrierCtrl.dispose();
+    _phoneCtrl.dispose();
+    _fscRateCtrl.dispose();
+    _fscReceivedCtrl.dispose();
+    _insRateCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Setup & Settings'),
-        actions: const [HelpButton(HelpScreens.settings)],
-        bottom: TabBar(
-          controller: _tab,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
-          indicatorWeight: 3,
-          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-          unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15),
-          tabs: const [
-            Tab(text: 'Preferences'),
-            Tab(text: 'Business'),
-            Tab(text: 'Rig'),
-          ],
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      // Tap outside a field to dismiss the keyboard. The numeric keypad has no
+      // Done button, so without this the Save button can stay hidden behind it.
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        // Body shrinks above the keyboard on every device; the Save bar lives
+        // INSIDE that body (see below), so it floats just above the keyboard
+        // instead of being buried behind it.
+        resizeToAvoidBottomInset: true,
+        appBar: AppBar(
+          title: const Text('Setup & Settings'),
+          actions: const [HelpButton(HelpScreens.settings)],
+          bottom: TabBar(
+            controller: _tab,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
+            indicatorWeight: 3,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 15),
+            tabs: const [
+              Tab(text: 'Preferences'),
+              Tab(text: 'Business'),
+              Tab(text: 'Rig'),
+            ],
+          ),
         ),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tab,
-              children: [_preferencesTab(), _businessTab(), const RigTab()],
-            ),
-      bottomNavigationBar: (_loading || _tab.index == 2)
-          ? null
-          : SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _saving ? null : _save,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: Colors.blueGrey[700],
-                        foregroundColor: Colors.white,
-                      ),
-                      child: _saving
-                          ? const SizedBox(
-                              height: 20, width: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : const Text('Save Changes', style: TextStyle(fontSize: 16)),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tab,
+                      children: [_preferencesTab(), _businessTab(), const RigTab()],
                     ),
                   ),
-                ),
+                  // Rig tab (index 2) saves per-unit in its own dialogs, so it
+                  // has no Save bar. On the other tabs the bar sits at the
+                  // bottom of the body and rides above the keyboard.
+                  if (_tab.index != 2) _saveBar(),
+                ],
               ),
+      ),
+    );
+  }
+
+  Widget _saveBar() {
+    return SafeArea(
+      top: false, // guard only the bottom (home indicator / rounded corners)
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          border: Border(top: BorderSide(color: Colors.grey.shade300)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _saving ? null : _save,
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              backgroundColor: Colors.blueGrey[700],
+              foregroundColor: Colors.white,
+            ),
+            child: _saving
+                ? const SizedBox(
+                    height: 20, width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Save Changes', style: TextStyle(fontSize: 16)),
+          ),
+        ),
+      ),
     );
   }
 
@@ -371,7 +430,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
         const Text("Your co-pilot's name",
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
         const SizedBox(height: 4),
-        const Text("Call him by this and he'll answer. Tap one or type your own.",
+        const Text("Call her by this and she'll answer. Tap one or type your own.",
             style: TextStyle(fontSize: 12, color: Colors.grey)),
         const SizedBox(height: 10),
         Wrap(
@@ -395,7 +454,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           ),
         ),
         const SizedBox(height: 20),
-        const Text('What should he call you?',
+        const Text('What should she call you?',
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         TextField(
@@ -543,6 +602,33 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
           onChanged: (v) => setState(() => _carrierFuelCard = v),
           contentPadding: EdgeInsets.zero,
         ),
+        const SizedBox(height: 12),
+        const Text('Fuel surcharge',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        const Text(
+            'FSC is passed through — your carrier doesn\'t take a cut of it, and it '
+            'counts as income toward your hourly. Most carriers run about 6%.',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _numberField(_fscRateCtrl, 'FSC (% of gross)', suffix: '%')),
+            const SizedBox(width: 12),
+            Expanded(child: _numberField(_fscReceivedCtrl, 'You keep', suffix: '%')),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const Text('Carrier insurance',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        const Text(
+            'Some carriers take a slice of your gross for insurance — it comes off '
+            'the top before your cut, and you keep none of it. Often 3–4%. Leave 0 '
+            'if your carrier doesn\'t, or if you run your own authority.',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 12),
+        _numberField(_insRateCtrl, 'Carrier insurance (% of gross)', suffix: '%'),
         const SizedBox(height: 24),
         const Text('Your Time',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
@@ -594,6 +680,56 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                   fontSize: 14,
                   color: _runStates.isEmpty ? Colors.grey[500] : Colors.black87,
                 )),
+          ),
+        ),
+        const SizedBox(height: 24),
+        const Text('Your Device & Contact',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+        const SizedBox(height: 4),
+        const Text('Optional — helps us test on the right hardware and reach you about the beta.',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 4),
+        CheckboxListTile(
+          title: const Text('iPhone'),
+          value: _deviceIphone,
+          onChanged: (v) => setState(() => _deviceIphone = v ?? false),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+        ),
+        CheckboxListTile(
+          title: const Text('Android phone'),
+          value: _deviceAndroidPhone,
+          onChanged: (v) => setState(() => _deviceAndroidPhone = v ?? false),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+        ),
+        CheckboxListTile(
+          title: const Text('iPad'),
+          value: _deviceIpad,
+          onChanged: (v) => setState(() => _deviceIpad = v ?? false),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+        ),
+        CheckboxListTile(
+          title: const Text('Android tablet'),
+          value: _deviceAndroidTablet,
+          onChanged: (v) => setState(() => _deviceAndroidTablet = v ?? false),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          dense: true,
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _phoneCtrl,
+          keyboardType: TextInputType.phone,
+          decoration: const InputDecoration(
+            labelText: 'Phone (optional)',
+            helperText: 'So we can reach you about the beta.',
+            border: OutlineInputBorder(),
+            isDense: true,
           ),
         ),
         const SizedBox(height: 12),

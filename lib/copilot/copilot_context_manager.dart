@@ -4,8 +4,8 @@ class CopilotContextManager {
   final SupabaseClient _supabase;
 
   String driverName = 'driver';
-  String copilotName = 'Bob';
-  String copilotAvatar = 'initial';
+  String copilotName = 'Gigi';
+  String copilotAvatar = 'gigi';
   int memoryDays = 1;
   final List<Map<String, String>> priorContext = [];
 
@@ -22,8 +22,10 @@ class CopilotContextManager {
           .eq('user_id', user.id)
           .single();
       driverName = p['preferred_name'] ?? 'driver';
-      copilotName = p['copilot_name'] ?? 'Bob';
-      copilotAvatar = (p['copilot_avatar'] ?? 'initial').toString();
+      copilotName = p['copilot_name'] ?? 'Gigi';
+      final storedAvatar = (p['copilot_avatar'] ?? 'gigi').toString();
+      // Retire the old green-circle 'initial' default — show Gigi instead.
+      copilotAvatar = storedAvatar == 'initial' ? 'gigi' : storedAvatar;
       memoryDays = (p['copilot_memory_days'] ?? 1) as int;
     } catch (_) {}
   }

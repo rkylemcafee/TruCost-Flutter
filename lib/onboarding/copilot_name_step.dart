@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../copilot/copilot_avatar.dart';
 
 /// Step 0: Name your co-pilot. Presets or a custom name → profiles.copilot_name.
 ///
@@ -18,6 +19,7 @@ class _CopilotNameStepState extends State<CopilotNameStep> {
 
   // [stored name, label, flavor]
   static const List<List<String>> _presets = [
+    ['Gigi', 'Gigi', 'Your TruCost co-pilot'],
     ['TruCost Co-Pilot', 'TruCost Co-Pilot', 'Keeps it all business'],
     ['Dave', 'Dave', 'The Dispatcher'],
     ['Charlie', 'Charlie', 'The Co-Pilot'],
@@ -25,7 +27,7 @@ class _CopilotNameStepState extends State<CopilotNameStep> {
 
   static const String _customKey = '__custom__';
 
-  String _choice = 'TruCost Co-Pilot';
+  String _choice = 'Gigi';
   final _customCtrl = TextEditingController();
   bool _loading = false;
 
@@ -38,7 +40,7 @@ class _CopilotNameStepState extends State<CopilotNameStep> {
   String get _resolvedName {
     if (_choice == _customKey) {
       final t = _customCtrl.text.trim();
-      return t.isEmpty ? 'TruCost Co-Pilot' : t;
+      return t.isEmpty ? 'Gigi' : t;
     }
     return _choice;
   }
@@ -69,7 +71,9 @@ class _CopilotNameStepState extends State<CopilotNameStep> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Icon(Icons.smart_toy, size: 64, color: Colors.blueGrey),
+          const Center(
+            child: CopilotAvatar(name: 'Gigi', avatarKey: 'gigi', size: 96),
+          ),
           const SizedBox(height: 16),
           const Text(
             'Meet Your Co-Pilot',
@@ -78,7 +82,7 @@ class _CopilotNameStepState extends State<CopilotNameStep> {
           ),
           const SizedBox(height: 8),
           const Text(
-            "What do you want to call your voice assistant? Call him by name and he'll answer.",
+            "What do you want to call your voice assistant? Call her by name and she'll answer.",
             style: TextStyle(fontSize: 14, color: Colors.grey),
             textAlign: TextAlign.center,
           ),

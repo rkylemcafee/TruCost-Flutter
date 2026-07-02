@@ -273,7 +273,22 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
     final date = trip['trip_date'] ?? '';
     final gross = _grossOf(trip);
     final net = _netOf(trip);
-    final fuel = _toNum(trip['estimated_fuel_cost']);
+    var json = trip['estimate_json'];
+    // Newer estimates nest the numbers under breakdown / rates / levers.
+    // Flatten those up so the expanded reads (fuel, hotels, cost/mile) resolve
+    // for both old flat quotes and new booked loads.
+    if (json is Map &&
+        (json['breakdown'] is Map || json['rates'] is Map || json['levers'] is Map)) {
+      final flat = Map<String, dynamic>.from(json);
+      for (final section in const ['breakdown', 'rates', 'levers']) {
+        if (json[section] is Map) flat.addAll(Map<String, dynamic>.from(json[section] as Map));
+      }
+      json = flat;
+    }
+    // Fuel: prefer the top-level column, else pull from estimate_json
+    // (quotes save it there as totalFuelCost).
+    double fuel = _toNum(trip['estimated_fuel_cost']);
+    if (fuel == 0 && json is Map) fuel = _toNum(json['totalFuelCost']);
     final miles = _toNum(trip['total_miles']);
     final hourly = _getHourly(trip);
     final origin = trip['origin'] ?? '';
@@ -288,9 +303,19 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
         ? '$contactName${contactCompany.isNotEmpty ? ' — $contactCompany' : ''}'
         : '';
 
-    final json = trip['estimate_json'];
-    final costPerMile = json is Map ? _toNum(json['costPerMile']) : 0.0;
-    final offerPerMile = json is Map ? _toNum(json['offerPerMile']) : 0.0;
+    var costPerMile = json is Map ? _toNum(json['costPerMile']) : 0.0;
+    var offerPerMile = json is Map ? _toNum(json['offerPerMile']) : 0.0;
+    // New snapshots don't stash per-mile values — derive them from the frozen
+    // totals so the expanded view isn't $0.00/mi.
+    if (miles > 0) {
+      if (costPerMile == 0 && json is Map) {
+        final tc = _toNum(json['totalCosts']);
+        if (tc > 0) costPerMile = tc / miles;
+      }
+      if (offerPerMile == 0 && gross > 0) offerPerMile = gross / miles;
+    }
+    final hotelCost = json is Map ? _toNum(json['hotelCost']) : 0.0;
+    final hotelNights = json is Map ? _toNum(json['hotelNights']) : 0.0;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -317,6 +342,9 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
                 _badge('${miles.round()} mi', Colors.blueGrey),
                 _badge(_usd(gross), Colors.blue),
                 _badge(_usd(net), isWinner ? Colors.green : Colors.red),
+                if (hourly != 0)
+                  _badge('\$${hourly.toStringAsFixed(0)}/hr',
+                      isWinner ? Colors.green : Colors.red),
               ],
             ),
           ],
@@ -334,6 +362,8 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
                 _detailRow('Effective Hourly', '${_usd(hourly)}/hr',
                     valueColor: isWinner ? Colors.green : Colors.red),
                 _detailRow('Cost per Mile', '${_usd(costPerMile)}/mi'),
+                if (hotelCost > 0)
+                  _detailRow('Hotels (${hotelNights.round()} nt, est.)', _usd(hotelCost)),
                 _detailRow('Offer per Mile', '${_usd(offerPerMile)}/mi'),
                 _detailRow('Fuel Price Used',
                     _usd(_toNum(trip['fuel_price_used']))),

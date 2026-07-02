@@ -27,6 +27,14 @@ class _DefaultsStepState extends State<DefaultsStep> {
   final _cargoInsCtrl = TextEditingController(text: '100000');
   final _hotelRateCtrl = TextEditingController(text: '120');
   bool _teamOperation = false;
+
+  // Optional device capture (feeds profiles.device_* and profiles.phone).
+  bool _deviceIphone = false;
+  bool _deviceAndroidPhone = false;
+  bool _deviceIpad = false;
+  bool _deviceAndroidTablet = false;
+  final _phoneCtrl = TextEditingController();
+
   List<String> _runStates = kUsStates.keys.toList();
 
   bool _loading = false;
@@ -49,6 +57,11 @@ class _DefaultsStepState extends State<DefaultsStep> {
         'hotel_rate': double.tryParse(_hotelRateCtrl.text) ?? 120,
         'team_operation': _teamOperation,
         'run_states': _runStates,
+        'device_iphone': _deviceIphone,
+        'device_android_phone': _deviceAndroidPhone,
+        'device_ipad': _deviceIpad,
+        'device_android_tablet': _deviceAndroidTablet,
+        'phone': _phoneCtrl.text.trim().isEmpty ? null : _phoneCtrl.text.trim(),
       }).eq('user_id', user.id);
 
       widget.onNext();
@@ -73,6 +86,7 @@ class _DefaultsStepState extends State<DefaultsStep> {
     _overheadCtrl.dispose();
     _cargoInsCtrl.dispose();
     _hotelRateCtrl.dispose();
+    _phoneCtrl.dispose();
     super.dispose();
   }
 
@@ -168,6 +182,57 @@ class _DefaultsStepState extends State<DefaultsStep> {
               ),
               child: Text(_runStatesLabel(),
                   style: TextStyle(fontSize: 14, color: _runStates.isEmpty ? Colors.grey[500] : Colors.black87)),
+            ),
+          ),
+
+          const SizedBox(height: 8),
+          const Divider(),
+          const SizedBox(height: 8),
+          const Text('Your device (optional)',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          const Text('Check any you use — helps us test on the right hardware.',
+              style: TextStyle(fontSize: 12, color: Colors.grey)),
+          CheckboxListTile(
+            title: const Text('iPhone'),
+            value: _deviceIphone,
+            onChanged: (v) => setState(() => _deviceIphone = v ?? false),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            dense: true,
+          ),
+          CheckboxListTile(
+            title: const Text('Android phone'),
+            value: _deviceAndroidPhone,
+            onChanged: (v) => setState(() => _deviceAndroidPhone = v ?? false),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            dense: true,
+          ),
+          CheckboxListTile(
+            title: const Text('iPad'),
+            value: _deviceIpad,
+            onChanged: (v) => setState(() => _deviceIpad = v ?? false),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            dense: true,
+          ),
+          CheckboxListTile(
+            title: const Text('Android tablet'),
+            value: _deviceAndroidTablet,
+            onChanged: (v) => setState(() => _deviceAndroidTablet = v ?? false),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            dense: true,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _phoneCtrl,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Phone (optional)',
+              helperText: 'So we can reach you about the beta.',
+              border: OutlineInputBorder(),
             ),
           ),
 

@@ -30,6 +30,7 @@ class _LoginPageState extends State<LoginPage> {
   bool _loading = false;
   bool _obscure = true;
   bool _codeSent = false;
+  bool _signupConfirm = false; // true when the code screen is confirming a new signup
   String _otpEmail = '';
 
   @override
@@ -67,12 +68,17 @@ class _LoginPageState extends State<LoginPage> {
       } else {
         final res = await _supabase.auth.signUp(email: email, password: password);
         if (res.session == null) {
-          // email confirmation is on — they must confirm before signing in
-          _toast('Account created. Check your email to confirm, then sign in.');
+          // Email confirmation is on. Instead of the emailed LINK (which opens
+          // the enterprise web login and requires signing in again), send them
+          // to the in-app code screen and verify the 6-digit code from the same
+          // email. Never leaves the app; verifying the code logs them in.
           setState(() {
-            _mode = _Mode.signIn;
+            _otpEmail = email;
+            _signupConfirm = true;
+            _codeSent = true;
             _loading = false;
           });
+          _toast('Account created — enter the 6-digit code we emailed you.');
           return;
         }
         // confirmation off → signed in → AuthGate routes to onboarding
@@ -118,6 +124,7 @@ class _LoginPageState extends State<LoginPage> {
       await _supabase.auth.signInWithOtp(email: email);
       setState(() {
         _otpEmail = email;
+        _signupConfirm = false;
         _codeSent = true;
         _loading = false;
       });
@@ -139,7 +146,11 @@ class _LoginPageState extends State<LoginPage> {
     }
     setState(() => _loading = true);
     try {
-      await _supabase.auth.verifyOTP(email: _otpEmail, token: token, type: OtpType.email);
+      await _supabase.auth.verifyOTP(
+        email: _otpEmail,
+        token: token,
+        type: _signupConfirm ? OtpType.signup : OtpType.email,
+      );
       // success → AuthGate takes over
     } on AuthException catch (e) {
       setState(() => _loading = false);
@@ -280,7 +291,7 @@ class _LoginPageState extends State<LoginPage> {
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             textAlign: TextAlign.center),
         const SizedBox(height: 8),
-        Text('We sent a sign-in code to\n$_otpEmail',
+        Text('We sent a 6-digit code to\n$_otpEmail',
             style: const TextStyle(fontSize: 14, color: Colors.grey),
             textAlign: TextAlign.center),
         const SizedBox(height: 24),
@@ -313,6 +324,7 @@ class _LoginPageState extends State<LoginPage> {
         TextButton(
           onPressed: () => setState(() {
             _codeSent = false;
+            _signupConfirm = false;
             _codeCtrl.clear();
           }),
           child: const Text('Back'),

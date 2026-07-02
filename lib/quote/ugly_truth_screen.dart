@@ -13,12 +13,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../engine/trucost_engine.dart';
 import '../services/fuel_price_service.dart';
+import '../services/location_service.dart';
 import '../trips/load_details_screen.dart';
 
 class UglyTruthScreen extends StatefulWidget {
@@ -41,6 +41,12 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
   bool _calculating = false;
   String? _error;
 
+  // Step 2: which job the driver is doing. null = show the picker first.
+  //   'quote'    = no offer yet — find my number / what to ask for
+  //   'evaluate' = a broker gave a price — take it or pass
+  String? _mode;
+  bool get _isQuote => _mode == 'quote';
+
   // computed by Run
   bool _hasRun = false;
   double _loadedMiles = 0;
@@ -50,12 +56,17 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
   // operator profile / equipment
   double _carrierCutPct = 25;
   double _overheadPct = 15;
+  double _fscPct = 6;            // FSC as % of gross
+  double _fscPctReceived = 100;  // % of FSC the operator keeps
+  double _insPct = 3;            // carrier insurance as % of gross
   double _fuelPrice = 4.00;
   double _emptyMpg = 8;
   double _loadedMpg = 6;
   double _speedEmpty = 60;
   double _speedLoaded = 55;
   double _annualHours = 2500;
+  double _hotelRate = 120;       // nightly hotel rate for non-sleeper trucks
+  bool _hasSleeper = true;       // active truck has a sleeper berth → no hotels
   UnitCost _truck = UnitCost.owned(value: 140000);
   UnitCost _trailer = UnitCost.owned(value: 40000);
 
@@ -108,7 +119,11 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
       if (p != null) {
         _carrierCutPct = _toDouble(p['carrier_cut_pct'], 25);
         _overheadPct = _toDouble(p['overhead_pct'], 15);
+        _fscPct = _toDouble(p['fsc_rate'], 6);
+        _fscPctReceived = _toDouble(p['fsc_pct_received'], 100);
+        _insPct = _toDouble(p['carrier_insurance_pct'], 3);
         _fuelPrice = _toDouble(p['fuel_price_default'], 4.00);
+        _hotelRate = _toDouble(p['hotel_rate'], 120);
         _emptyMpg = _toDouble(p['empty_mpg'], 8);
         _loadedMpg = _toDouble(p['loaded_mpg'], 6);
         _speedEmpty = _toDouble(p['speed_empty'], 60);
@@ -135,6 +150,7 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
         _loadedMpg = _toDouble(t['loaded_mpg'], _loadedMpg);
         _speedEmpty = _toDouble(t['speed_empty'], _speedEmpty);
         _speedLoaded = _toDouble(t['speed_loaded'], _speedLoaded);
+        _hasSleeper = t['has_sleeper_berth'] == true;
       }
       final trailers = await _supabase
           .from('units')
@@ -168,35 +184,14 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
       _error = null;
     });
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        setState(() {
-          _error = 'Location services are off. Turn them on in Settings.';
-          _gettingLocation = false;
-        });
-        return;
-      }
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() {
-            _error = 'Location permission denied.';
-            _gettingLocation = false;
-          });
-          return;
-        }
-      }
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          _error = 'Location permission permanently denied. Enable in Settings.';
-          _gettingLocation = false;
-        });
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.medium);
+      final latLng = await LocationService.getLatLngString();
       setState(() {
-        _currentLocation = '${pos.latitude},${pos.longitude}';
+        _currentLocation = latLng;
+        _gettingLocation = false;
+      });
+    } on LocationException catch (e) {
+      setState(() {
+        _error = e.message;
         _gettingLocation = false;
       });
     } catch (e) {
@@ -217,7 +212,7 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
       setState(() => _error = 'Enter pickup and delivery.');
       return;
     }
-    if (offer == null || offer <= 0) {
+    if (!_isQuote && (offer == null || offer <= 0)) {
       setState(() => _error = 'Enter the broker\'s offer.');
       return;
     }
@@ -264,7 +259,8 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
       setState(() {
         _deadheadMiles = deadhead;
         _loadedMiles = loaded;
-        _offer = offer;
+        _offer = _isQuote ? 0 : (offer ?? 0);
+        _previewMinimum = _isQuote; // quote opens on your number, not an offer
         _hasRun = true;
         _calculating = false;
       });
@@ -281,6 +277,8 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
       _hasRun = false;
       _error = null;
       _previewMinimum = false;
+      _mode = null; // back to the Quote / Evaluate picker
+      _offerCtrl.clear();
     });
   }
 
@@ -305,10 +303,15 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
       dieselPricePerGallon: _fuelPrice,
       hourlyRate: _hourlyRate,
       loadUnloadHours: _loadUnloadHours,
+      hasSleeper: _hasSleeper,
+      hotelRate: _hotelRate,
       truck: _truck,
       trailer: _trailer,
       carrierCutPercent: _carrierCutPct / 100,
       overheadPercent: _overheadPct / 100,
+      fscPercent: _fscPct / 100,
+      fscPercentReceived: _fscPctReceived / 100,
+      insurancePercent: _insPct / 100,
       annualWorkingHours: _annualHours,
     ));
   }
@@ -323,7 +326,7 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
   /// The gross we actually display/draw: the real offer (plus detention), or
   /// the minimum if the user tapped "show me at the minimum" preview.
   double get _displayedGross =>
-      _previewMinimum ? _minimumGross : _effectiveGross;
+      (_previewMinimum || _isQuote) ? _minimumGross : _effectiveGross;
 
   /// Save this load as a quote-stage trip, then open Book This Load for it.
   /// Books at whatever gross is currently DISPLAYED (the real offer, or the
@@ -359,29 +362,73 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
             'loaded_miles': _loadedMiles,
             'fuel_price_used': _fuelPrice,
             'carrier_cut_pct_at_time': _carrierCutPct,
+            'lease_status_at_time':
+                _carrierCutPct > 0 ? 'leased' : 'independent',
             'offer_gross': _offer,           // broker's original offer (history)
-            'quoted_gross': _minimumGross,   // what we asked for (the counter)
+            'quoted_gross': _minimumGross,   // what we asked for (the floor)
             'agreed_gross': bookGross,       // the number we're booking at
-            'stage': 'quote',
+            'gross_pay': bookGross,
+            // Flat headline columns — the Loads list reads these directly,
+            // no JSON parsing, and they never move once written.
+            'estimated_fuel_cost': r.totalFuelCost,
+            'estimated_net': r.netToOperator,
+            'net_to_operator': r.netToOperator,
+            'effective_hourly': r.effectiveHourlyRate,
+            'carrier_cut': r.carrierCut,
+            'stage': _isQuote ? 'quoted' : 'booked',
             'status': 'saved',
+            'booked_at': now.toIso8601String(),
+            // FROZEN SNAPSHOT — everything needed to redraw the exact breakdown
+            // downstream without recomputing. Rates are captured as-of now, so a
+            // later profile change can't retroactively move a booked load.
             'estimate_json': {
+              'schemaVersion': 2,
               'source': 'ugly_truth',
+              'mode': _isQuote ? 'quote' : 'evaluate',
+              'frozenAt': now.toIso8601String(),
               'bookedGross': bookGross,
-              'wasPreview': _previewMinimum,
-              'detentionPay': _detentionPay,
-              'loadUnloadHours': _loadUnloadHours,
-              'freeHours': _freeHours,
-              'detentionPerHour': _detentionPerHour,
-              'hourlyBar': _hourlyRate,
-              'totalFuelCost': r.totalFuelCost,
-              'equipmentCost': r.equipmentCost,
-              'overheadCost': r.overheadCost,
-              'totalCosts': r.totalCosts,
-              'netToOperator': r.netToOperator,
-              'effectiveHourlyRate': r.effectiveHourlyRate,
-              'totalMiles': r.totalMiles,
-              'totalHours': r.totalHours,
+              'offer': _offer,
               'floorGross': r.minimumGrossNeeded,
+              'wasPreview': _previewMinimum,
+              // The full "Where your money goes" waterfall, penny for penny.
+              'breakdown': {
+                'gross': r.grossPay,
+                'insuranceAmount': r.insuranceAmount,
+                'carrierCut': r.carrierCut,
+                'operatorRevenue': r.operatorGross,
+                'fscKept': r.fscAmount,
+                'totalFuelCost': r.totalFuelCost,
+                'equipmentCost': r.equipmentCost,
+                'overheadCost': r.overheadCost,
+                'hotelCost': r.hotelCost,
+                'hotelNights': r.hotelNights,
+                'tollsCost': r.tollsCost,
+                'totalCosts': r.totalCosts,
+                'netToOperator': r.netToOperator,
+                'effectiveHourlyRate': r.effectiveHourlyRate,
+                'totalMiles': r.totalMiles,
+                'totalHours': r.totalHours,
+              },
+              // The rates in effect at book time — so labels and any re-derivation
+              // use these, not whatever the profile says later.
+              'rates': {
+                'carrierCutPct': _carrierCutPct,
+                'insurancePct': _insPct,
+                'fscPct': _fscPct,
+                'fscPctReceived': _fscPctReceived,
+                'overheadPct': _overheadPct,
+                'hotelRate': _hotelRate,
+                'hasSleeper': _hasSleeper,
+                'fuelPrice': _fuelPrice,
+              },
+              // The lever positions the driver settled on.
+              'levers': {
+                'hourlyBar': _hourlyRate,
+                'loadUnloadHours': _loadUnloadHours,
+                'freeHours': _freeHours,
+                'detentionPerHour': _detentionPerHour,
+                'detentionPay': _detentionPay,
+              },
             },
           })
           .select('id')
@@ -414,7 +461,87 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
     }
     return Scaffold(
       appBar: AppBar(title: const Text('The Ugly Truth')),
-      body: _hasRun ? _buildSliderPhase() : _buildInputPhase(),
+      body: _mode == null
+          ? _buildModePicker()
+          : _hasRun
+              ? _buildSliderPhase()
+              : _buildInputPhase(),
+    );
+  }
+
+  Widget _modeCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color, width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 34, color: color),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          color: color)),
+                  const SizedBox(height: 4),
+                  Text(subtitle,
+                      style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: color),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModePicker() {
+    const green = Color(0xFF2E7D32);
+    const amber = Color(0xFFB26A00);
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const SizedBox(height: 8),
+        const Text('What are you doing?',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 6),
+        Text('Same math either way — this just sets how the answer reads.',
+            style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+        const SizedBox(height: 20),
+        _modeCard(
+          icon: Icons.request_quote_outlined,
+          title: 'Quote a load',
+          subtitle: 'No price yet — find your number and what to ask for.',
+          color: green,
+          onTap: () => setState(() => _mode = 'quote'),
+        ),
+        const SizedBox(height: 14),
+        _modeCard(
+          icon: Icons.gavel_outlined,
+          title: 'Evaluate a load',
+          subtitle: 'They gave you a price — take it or pass.',
+          color: amber,
+          onTap: () => setState(() => _mode = 'evaluate'),
+        ),
+      ],
     );
   }
 
@@ -424,10 +551,31 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('Where & how much',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          Row(
+            children: [
+              Expanded(
+                child: Text(_isQuote ? 'Where to & how far' : 'Where & how much',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+              TextButton.icon(
+                onPressed: () => setState(() {
+                  _mode = null;
+                  _error = null;
+                }),
+                icon: const Icon(Icons.swap_horiz, size: 16),
+                label: Text(_isQuote ? 'Quote' : 'Evaluate'),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  minimumSize: const Size(0, 0),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 4),
-          Text('Enter the load, then Run. After that it\'s all sliders.',
+          Text(
+              _isQuote
+                  ? 'Enter the lane, then get your number. After that it\'s all sliders.'
+                  : 'Enter the load, then Run. After that it\'s all sliders.',
               style: TextStyle(fontSize: 12, color: Colors.grey[600])),
           const SizedBox(height: 16),
           Row(
@@ -490,18 +638,21 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _offerCtrl,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            decoration: const InputDecoration(
-              labelText: 'Broker offered (\$)',
-              hintText: 'What are they paying?',
-              prefixIcon: Icon(Icons.attach_money),
-              border: OutlineInputBorder(),
+          if (!_isQuote) ...[
+            TextField(
+              controller: _offerCtrl,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Broker offered (\$)',
+                hintText: 'What are they paying?',
+                prefixIcon: Icon(Icons.attach_money),
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
+          ] else
+            const SizedBox(height: 8),
           ElevatedButton(
             onPressed: _calculating ? null : _run,
             style: ElevatedButton.styleFrom(
@@ -513,7 +664,8 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
                 ? const SizedBox(
                     height: 20, width: 20,
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                : const Text('Run the Numbers', style: TextStyle(fontSize: 18)),
+                : Text(_isQuote ? 'Get My Number' : 'Run the Numbers',
+                    style: const TextStyle(fontSize: 18)),
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),
@@ -527,34 +679,45 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
   Widget _buildSliderPhase() {
     // Compute against the displayed gross (real offer, or minimum if previewing).
     final r = _compute(grossOverride: _displayedGross);
-    final wins = r.effectiveHourlyRate >= _hourlyRate;
+    // Clearing the bar exactly counts as a win. The target gross is derived by
+    // dividing, so feeding it back can land a hair under (e.g. $49.9999997);
+    // a half-cent/hr tolerance keeps "exactly your bar" from reading as under.
+    final wins = r.effectiveHourlyRate >= _hourlyRate - 0.005;
+    final barGap = r.effectiveHourlyRate - _hourlyRate;
     final green = const Color(0xFF2E7D32);
     final red = const Color(0xFFC62828);
     final verdictColor = wins ? green : red;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                '${_usd(_offer)} offer  ·  ${_loadedMiles.round()} loaded'
-                '${_deadheadMiles > 0 ? ' + ${_deadheadMiles.round()} dh' : ''} mi',
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        // PINNED — stays on screen while the levers scroll beneath it, so the
+        // green glow is visible the moment a load slides into range.
+        _buildVerdictStrip(r, wins, barGap, green, red, verdictColor),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${_isQuote ? 'Quote' : '${_usd(_offer)} offer'}  ·  ${_loadedMiles.round()} loaded'
+                      '${_deadheadMiles > 0 ? ' + ${_deadheadMiles.round()} dh' : ''} mi',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _reset,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('New load'),
+                  ),
+                ],
               ),
-            ),
-            TextButton.icon(
-              onPressed: _reset,
-              icon: const Icon(Icons.refresh, size: 16),
-              label: const Text('New load'),
-            ),
-          ],
-        ),
 
-        // Preview banner — only when showing the minimum, not the real offer.
-        if (_previewMinimum) ...[
+        // Preview banner — only in evaluate mode, when showing the minimum
+        // instead of the real offer. In quote mode the whole screen is the target.
+        if (_previewMinimum && !_isQuote) ...[
           const SizedBox(height: 4),
           Container(
             width: double.infinity,
@@ -590,6 +753,7 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
         const SizedBox(height: 12),
         _UglyTruthBars(
           offer: r.grossPay,
+          offerLabel: _isQuote ? 'Your Number' : 'The Offer',
           fuel: r.totalFuelCost,
           equipment: r.equipmentCost,
           overhead: r.overheadCost,
@@ -600,48 +764,16 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
           green: green,
           red: red,
         ),
-        const SizedBox(height: 16),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: verdictColor.withOpacity(0.10),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: verdictColor, width: 1.5),
-          ),
-          child: Column(
-            children: [
-              Text(
-                wins ? 'TAKE IT' : 'WALK AWAY',
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w900,
-                  color: verdictColor,
-                  letterSpacing: 1,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '${_usd(r.effectiveHourlyRate)}/hr take-home  ·  your bar is ${_usd(_hourlyRate)}/hr',
-                style: TextStyle(fontSize: 14, color: Colors.grey[800]),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                wins
-                    ? 'Clears your bar by ${_usd(r.effectiveHourlyRate - _hourlyRate)}/hr  ·  ${_usd(r.netToOperator)} take-home'
-                    : '${_usd(_hourlyRate - r.effectiveHourlyRate)}/hr under  ·  ${_usd(r.netToOperator)} take-home',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
+        const SizedBox(height: 8),
 
-        // GREEN → TAKE IT. Works on the real offer AND in preview mode (if he
-        // talked the broker up to the target, book it at that number). The
-        // button names the dollar amount so it's clear which rate is booked.
+        // GREEN → book it. Evaluate mode books the offer (or the talked-up
+        // target); quote mode books at your number. In quote mode we also show
+        // the "what to ask for" card, since that's the whole point of a quote.
         if (wins) ...[
+          if (_isQuote) ...[
+            const SizedBox(height: 16),
+            _buildCounterOffer(r, green),
+          ],
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
@@ -654,10 +786,13 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
                   : const Icon(Icons.check_circle_outline),
               label: Text(_booking
                   ? 'Saving…'
-                  : 'Take It at ${_usd(_displayedGross)} — Book This Load'),
+                  : (_isQuote
+                      ? 'Book at ${_usd(_displayedGross)} — My Number'
+                      : 'Take It at ${_usd(_displayedGross)} — Book This Load')),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: _previewMinimum ? const Color(0xFF00A152) : green,
+                backgroundColor:
+                    (_previewMinimum || _isQuote) ? const Color(0xFF00A152) : green,
                 foregroundColor: Colors.white,
                 textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
@@ -709,7 +844,7 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
         ),
         _slider(
           label: 'Free hours before detention',
-          value: _freeHours, min: 0, max: 6, divisions: 12,
+          value: _freeHours, min: 0, max: 12, divisions: 24,
           display: '${_freeHours.toStringAsFixed(1)} hrs',
           onChanged: (v) => setState(() { _freeHours = v; _previewMinimum = false; }),
         ),
@@ -727,6 +862,20 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
             style: TextStyle(fontSize: 12, color: Colors.green[800]),
           ),
         ],
+        // Hotel rate is a real lever when there's no sleeper: knock it down to a
+        // cheaper room to make a tight load work, instead of walking away.
+        if (!_hasSleeper) ...[
+          _slider(
+            label: 'Hotel rate',
+            value: _hotelRate.clamp(40, 250).toDouble(), min: 40, max: 250, divisions: 42,
+            display: '${_usd(_hotelRate)}/night',
+            onChanged: (v) => setState(() { _hotelRate = v; _previewMinimum = false; }),
+          ),
+          Text(
+            'Cheaper room, tighter load. Set what you\'d actually pay on this lane.',
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+          ),
+        ],
         const SizedBox(height: 24),
         Container(
           padding: const EdgeInsets.all(14),
@@ -741,7 +890,7 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
                 children: [
                   Icon(Icons.lock, size: 14, color: Colors.grey[600]),
                   const SizedBox(width: 6),
-                  Text('The fixed truth',
+                  Text('Where your money goes',
                       style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
@@ -749,18 +898,101 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              _fixedLine('Fuel', r.totalFuelCost),
-              _fixedLine('Truck + trailer', r.equipmentCost),
-              _fixedLine('Overhead', r.overheadCost),
-              _fixedLine('Carrier cut (${_carrierCutPct.round()}%)', r.carrierCut),
+              _flowRow('Gross', _money2(r.grossPay)),
+              if (r.insuranceAmount > 0)
+                _flowRow('Carrier insurance (${_insPct.round()}%)',
+                    '- ${_money2(r.insuranceAmount)}'),
+              _flowRow('Carrier cut (${_carrierCutPct.round()}% of line haul)',
+                  '- ${_money2(r.carrierCut)}'),
+              if (r.grossPay - r.operatorGross - r.insuranceAmount - r.carrierCut > 0.005)
+                _flowRow('FSC kept by carrier',
+                    '- ${_money2(r.grossPay - r.operatorGross - r.insuranceAmount - r.carrierCut)}'),
+              _flowRow('Your revenue', _money2(r.operatorGross),
+                  bold: true, color: Colors.green[800]),
+              if (r.fscAmount > 0)
+                _flowRow('incl. FSC you keep (${_fscPct.round()}%)',
+                    _money2(r.fscAmount)),
               const Divider(height: 16),
-              _fixedLine('Total miles', r.totalMiles, isMiles: true),
-              _fixedLine('Total hours', r.totalHours, isHours: true),
+              _flowRow('Fuel (avg ${_usd(_fuelPrice)}/gal)',
+                  '- ${_money2(r.totalFuelCost)}'),
+              _flowRow('Truck + trailer', '- ${_money2(r.equipmentCost)}'),
+              _flowRow('Overhead (${_overheadPct.round()}%)',
+                  '- ${_money2(r.overheadCost)}'),
+              if (r.hotelCost > 0)
+                _flowRow('Hotels (${r.hotelNights.round()} nt)',
+                    '- ${_money2(r.hotelCost)}'),
+              if (r.tollsCost > 0)
+                _flowRow('Tolls / other', '- ${_money2(r.tollsCost)}'),
+              _flowRow('Your net', _money2(r.netToOperator),
+                  bold: true,
+                  color: r.netToOperator >= 0 ? Colors.green[800] : Colors.red[700]),
+              const Divider(height: 16),
+              _flowRow('Total miles', '${r.totalMiles.round()} mi'),
+              _flowRow('Total hours', '${r.totalHours.toStringAsFixed(1)} hrs'),
             ],
           ),
         ),
-        const SizedBox(height: 32),
+              const SizedBox(height: 32),
+            ],
+          ),
+        ),
       ],
+    );
+  }
+
+  // Compact verdict that stays pinned at the top of the result while the levers
+  // scroll beneath it — glows green the instant the load is within range.
+  Widget _buildVerdictStrip(TripResult r, bool wins, double barGap,
+      Color green, Color red, Color verdictColor) {
+    final headline = _isQuote
+        ? 'ASK FOR ${_usd(_minimumGross)}'
+        : (wins ? 'TAKE IT' : 'WALK AWAY');
+    final detail = _isQuote
+        ? 'clears your ${_usd(_hourlyRate)}/hr bar'
+        : (wins
+            ? 'clears by ${_usd(barGap < 0 ? 0.0 : barGap)}/hr'
+            : '${_usd(barGap > 0 ? 0.0 : -barGap)}/hr under');
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: verdictColor.withOpacity(0.12),
+        border: Border(bottom: BorderSide(color: verdictColor, width: 1.5)),
+        boxShadow: wins
+            ? [BoxShadow(color: green.withOpacity(0.45), blurRadius: 18, spreadRadius: 1)]
+            : null,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(headline,
+                  style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: verdictColor,
+                      letterSpacing: 0.5)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('${_usd(r.effectiveHourlyRate)}/hr  ·  ${_usd(r.netToOperator)}',
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: verdictColor)),
+              Text(detail, style: TextStyle(fontSize: 11, color: Colors.grey[700])),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -808,9 +1040,11 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              addToHitBar > 0
-                  ? '"${_usd(_offer)} doesn\'t work. I need ${_usd(barGross)} to run this right — that\'s ${_usd(addToHitBar)} more. Or hold the rate and get me loaded fast with detention after ${_freeHours.toStringAsFixed(0)} hrs."'
-                  : 'You\'re close — tighten the clock or add detention and this one works.',
+              _isQuote
+                  ? 'Quote this lane at ${_usd(barGross)} to clear your ${_usd(_hourlyRate)}/hr bar. Below ${_usd(breakEvenGross)} you\'re paying to haul it.'
+                  : (addToHitBar > 0
+                      ? '"${_usd(_offer)} doesn\'t work. I need ${_usd(barGross)} to run this right — that\'s ${_usd(addToHitBar)} more. Or hold the rate and get me loaded fast with detention after ${_freeHours.toStringAsFixed(0)} hrs."'
+                      : 'You\'re close — tighten the clock or add detention and this one works.'),
               style: const TextStyle(fontSize: 13, height: 1.35),
             ),
           ),
@@ -856,7 +1090,34 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
             min: min, max: max, divisions: divisions,
             activeColor: const Color(0xFF2E7D32),
             onChanged: onChanged,
+            // Commit the release position too. On a fast drag to an edge the
+            // final onChanged tick can be dropped between frames, leaving a
+            // stale value that snaps back on rebuild; onChangeEnd pins it.
+            onChangeEnd: onChanged,
           ),
+        ],
+      ),
+    );
+  }
+
+  String _money2(double v) => '\$${v.toStringAsFixed(2)}';
+
+  Widget _flowRow(String label, String value, {bool bold = false, Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: color ?? Colors.grey[700],
+                  fontWeight: bold ? FontWeight.w700 : FontWeight.normal)),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: bold ? FontWeight.w700 : FontWeight.w600,
+                  color: color)),
         ],
       ),
     );
@@ -885,6 +1146,7 @@ class _UglyTruthScreenState extends State<UglyTruthScreen> {
 /// fixed-height box so segments can never overflow the container.
 class _UglyTruthBars extends StatelessWidget {
   final double offer;
+  final String offerLabel;
   final double fuel;
   final double equipment;
   final double overhead;
@@ -897,6 +1159,7 @@ class _UglyTruthBars extends StatelessWidget {
 
   const _UglyTruthBars({
     required this.offer,
+    this.offerLabel = 'The Offer',
     required this.fuel,
     required this.equipment,
     required this.overhead,
@@ -948,7 +1211,7 @@ class _UglyTruthBars extends StatelessWidget {
                 _barColumn(
                   totalLabel: _usd(offer),
                   hourlyLabel: null,
-                  label: 'The Offer',
+                  label: offerLabel,
                   topColor: const Color(0xFF2E7D32),
                   children: [
                     if (emptyOfferFlex > 0) Spacer(flex: emptyOfferFlex),

@@ -215,6 +215,11 @@ class _RigTabState extends State<RigTab> {
                   TextField(
                     controller: priceCtrl,
                     keyboardType: TextInputType.number,
+                    onChanged: (_) {
+                      final price = double.tryParse(priceCtrl.text.trim()) ?? 0;
+                      final pct = isTruck ? 0.40 : 0.60;
+                      setD(() => residualCtrl.text = (price * pct).round().toString());
+                    },
                     decoration: const InputDecoration(
                         labelText: 'Purchase price',
                         prefixText: '\$ ',
@@ -340,6 +345,19 @@ class _RigTabState extends State<RigTab> {
       if (existing != null) {
         await _supabase.from('units').update(data).eq('id', existing['id']);
       } else {
+        // No two units of the same type may share a number.
+        final newNum = numCtrl.text.trim();
+        final clash = (isTruck ? _trucks : _trailers).any((u) =>
+            (u['unit_number'] ?? '').toString().trim() == newNum &&
+            newNum.isNotEmpty);
+        if (clash) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(
+                    '${isTruck ? 'Truck' : 'Trailer'} $newNum already exists.')));
+          }
+          return;
+        }
         final isFirst = (isTruck ? _trucks : _trailers).isEmpty;
         final inserted = await _supabase
             .from('units')

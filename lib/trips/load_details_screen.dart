@@ -35,12 +35,19 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
   final _grossCtrl = TextEditingController();
   final _proFocus = FocusNode();
 
-  // Cost basis pulled from the saved estimate. These don't change with gross,
-  // so we recompute carrier cut / net / $hr off the agreed gross arithmetically.
+  // Cost basis and the frozen rate structure, pulled from the saved estimate.
+  // Costs/hours don't change with gross, so carrier cut / net / $hr recompute
+  // arithmetically off the agreed gross — using the rates that were locked in
+  // at book time, not whatever the profile says now.
   double _carrierCutPct = 25;
   double _totalCosts = 0;
   double _totalHours = 0;
   bool _haveBasis = false;
+  // Fraction of gross the operator keeps after insurance, FSC, and carrier cut
+  // (the same effectiveShare the Ugly Truth uses). Line-haul fraction is gross
+  // minus insurance and FSC, used to size the carrier cut correctly.
+  double _effectiveShare = 0.75;
+  double _lineHaulFrac = 1.0;
 
   bool _loading = true;
   bool _saving = false;
@@ -110,12 +117,37 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
       final agreed = pickNum(['agreed_gross', 'quoted_gross', 'offer_gross', 'gross_pay']);
       if (agreed > 0) _grossCtrl.text = agreed.toStringAsFixed(0);
 
-      // Cost basis from the saved estimate (gross-independent).
+      // Cost basis + frozen rates from the saved estimate. Handles the current
+      // nested snapshot (schemaVersion 2: costs under 'breakdown', rates under
+      // 'rates') and older flat estimates where the values sat at the top level.
       final est = trip['estimate_json'];
       if (est is Map) {
-        _totalCosts = (est['totalCosts'] is num) ? (est['totalCosts'] as num).toDouble() : 0;
-        _totalHours = (est['totalHours'] is num) ? (est['totalHours'] as num).toDouble() : 0;
+        final breakdown = (est['breakdown'] is Map)
+            ? est['breakdown'] as Map
+            : est; // old flat format: values live at the top level
+        double num2(Map m, String k) =>
+            (m[k] is num) ? (m[k] as num).toDouble() : 0.0;
+
+        _totalCosts = num2(breakdown, 'totalCosts');
+        _totalHours = num2(breakdown, 'totalHours');
         _haveBasis = _totalCosts > 0 && _totalHours > 0;
+
+        // Reconstruct the frozen effectiveShare from the locked-in rates. If a
+        // load predates the rate snapshot, fall back to carrier-cut-only, which
+        // is exactly how those older loads were computed.
+        final rates = (est['rates'] is Map) ? est['rates'] as Map : null;
+        final cutPct = (rates != null
+                ? num2(rates, 'carrierCutPct')
+                : (trip['carrier_cut_pct_at_time'] is num
+                    ? (trip['carrier_cut_pct_at_time'] as num).toDouble()
+                    : 25)) /
+            100.0;
+        final insPct = rates != null ? num2(rates, 'insurancePct') / 100.0 : 0.0;
+        final fscPct = rates != null ? num2(rates, 'fscPct') / 100.0 : 0.0;
+        final fscKept =
+            rates != null ? num2(rates, 'fscPctReceived') / 100.0 : 1.0;
+        _lineHaulFrac = (1 - insPct - fscPct).clamp(0.0, 1.0);
+        _effectiveShare = _lineHaulFrac * (1 - cutPct) + fscPct * fscKept;
       }
       _carrierCutPct = pickNum(['carrier_cut_pct_at_time']) > 0
           ? pickNum(['carrier_cut_pct_at_time'])
@@ -267,18 +299,15 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
         'trip_sheet_sent': _tripSheetSent,
       };
 
-      // Agreed gross is the single locked number — all economics derive from it.
-      // Costs/hours are gross-independent (from the estimate), so carrier cut,
-      // net, and $/hr recompute arithmetically. No engine call needed.
+      // Agreed gross is the single locked number — all economics derive from it
+      // using the frozen cost basis and rates. Insurance + FSC + carrier cut are
+      // all baked into effectiveShare, so this matches the Ugly Truth exactly.
       final agreed = double.tryParse(_grossCtrl.text.trim());
       if (agreed != null && agreed > 0) {
         update['agreed_gross'] = agreed;
-        final cutPct = _carrierCutPct / 100.0;
-        final carrierCut = agreed * cutPct;
-        final operatorGross = agreed * (1 - cutPct);
-        update['carrier_cut'] = carrierCut;
+        update['carrier_cut'] = agreed * _lineHaulFrac * (_carrierCutPct / 100.0);
         if (_haveBasis) {
-          final net = operatorGross - _totalCosts;
+          final net = agreed * _effectiveShare - _totalCosts;
           final hourly = _totalHours > 0 ? net / _totalHours : 0.0;
           update['net_to_operator'] = net;
           update['effective_hourly'] = hourly;
@@ -369,16 +398,25 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
                   ),
                 ],
                 const SizedBox(height: 20),
-                _label('Agreed gross (\$)', 'What you and the broker settled on — drives the math'),
+                _label('Agreed gross (\$)',
+                    _booked
+                        ? 'Locked — the rate you agreed to when you booked'
+                        : 'What you and the broker settled on — drives the math'),
                 TextField(
                   controller: _grossCtrl,
+                  readOnly: _booked,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     prefixText: '\$ ',
                     hintText: 'e.g. 1600',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                     isDense: true,
+                    filled: _booked,
+                    fillColor: _booked ? Colors.grey.shade100 : null,
+                    suffixIcon: _booked
+                        ? Icon(Icons.lock, size: 18, color: Colors.grey[500])
+                        : null,
                   ),
                 ),
                 if (_haveBasis && _agreedNet != null) ...[
@@ -592,12 +630,12 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
 
   String _usd(double v) => '\$${v.toStringAsFixed(0)}';
 
-  // Live recompute as he edits the agreed gross — same arithmetic the save uses.
+  // Live recompute as he edits the agreed gross — same arithmetic the save uses,
+  // off the frozen effectiveShare so it matches what the Ugly Truth showed.
   double? get _agreedNet {
     final g = double.tryParse(_grossCtrl.text.trim());
     if (g == null || g <= 0 || !_haveBasis) return null;
-    final operatorGross = g * (1 - _carrierCutPct / 100.0);
-    return operatorGross - _totalCosts;
+    return g * _effectiveShare - _totalCosts;
   }
 
   double? get _agreedHourly {

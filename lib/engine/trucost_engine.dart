@@ -84,6 +84,21 @@ class TruCostInputs {
   final double carrierCutPercent;
   final double overheadPercent;
   final double annualWorkingHours;
+  final bool hasSleeper;       // truck has a sleeper berth → no hotel cost
+  final double hotelRate;      // nightly hotel rate for non-sleeper operators
+
+  // Fuel surcharge. FSC is a slice of the gross the carrier does NOT take a cut
+  // of — it's passed through to the operator. fscPercent is that slice as a
+  // fraction of gross (default 6%). fscPercentReceived is how much of the FSC
+  // the operator actually keeps (default 100%). For independents (carrier cut
+  // 0) these have no effect; they only matter when a carrier takes a cut.
+  final double fscPercent;
+  final double fscPercentReceived;
+
+  // Carrier insurance taken as a % of gross (default 3%). Like FSC it comes off
+  // the top before the carrier-cut split, but the operator keeps NONE of it —
+  // the carrier keeps it. Only applies when leased (carrier cut > 0).
+  final double insurancePercent;
 
   const TruCostInputs({
     required this.deadheadMiles,
@@ -102,6 +117,11 @@ class TruCostInputs {
     required this.carrierCutPercent,
     required this.overheadPercent,
     this.annualWorkingHours = 2500,
+    this.hasSleeper = true,
+    this.hotelRate = 0.0,
+    this.fscPercent = 0.06,
+    this.fscPercentReceived = 1.0,
+    this.insurancePercent = 0.03,
   });
 
   double get operatorSharePercent => 1.0 - carrierCutPercent;
@@ -111,6 +131,8 @@ class TruCostInputs {
 class TripResult {
   final double grossPay;
   final double carrierCut;
+  final double insuranceAmount; // carrier insurance taken off the top
+  final double fscAmount;       // fuel surcharge the operator keeps
   final double operatorGross;
   final double emptyFuelCost;
   final double loadedFuelCost;
@@ -119,6 +141,8 @@ class TripResult {
   final double trailerCost;
   final double equipmentCost;
   final double tollsCost;
+  final double hotelCost;
+  final double hotelNights;
   final double overheadCost;
   final double totalCosts;
   final double netToOperator; // operator take-home after all real costs
@@ -140,6 +164,8 @@ class TripResult {
   const TripResult({
     required this.grossPay,
     required this.carrierCut,
+    this.insuranceAmount = 0.0,
+    this.fscAmount = 0.0,
     required this.operatorGross,
     required this.emptyFuelCost,
     required this.loadedFuelCost,
@@ -148,6 +174,8 @@ class TripResult {
     required this.trailerCost,
     required this.equipmentCost,
     required this.tollsCost,
+    required this.hotelCost,
+    required this.hotelNights,
     required this.overheadCost,
     required this.totalCosts,
     required this.netToOperator,
@@ -202,16 +230,63 @@ class TruCostEngine {
     // Tolls
     final tollsCost = i.tollsOtherCost < 0 ? 0.0 : i.tollsOtherCost;
 
-    // Costs — fuel + equipment + tolls, then overhead on top.
+    // Hotels — only for non-sleeper trucks. Count the days on the road
+    // (~11 legal driving hours = one day, rounded up) and bill nights as
+    // task-days minus 1: you sleep away every night except the last, when
+    // you finish the run. Matches the enterprise per-diem/hotel logic.
+    double hotelNights = 0.0;
+    double hotelCost = 0.0;
+    if (!i.hasSleeper && i.hotelRate > 0 && totalHours > 0) {
+      final taskDays = (totalHours / 11.0).ceilToDouble();
+      hotelNights = taskDays > 1 ? taskDays - 1 : 0.0;
+      hotelCost = hotelNights * i.hotelRate;
+    }
+
+    // Costs — fuel + equipment + tolls + hotels, then overhead on top.
     // The operator's own driving time is NOT a cost here; it's what the
     // take-home pays for. The hourly target is a bar, applied below.
-    final baseCosts = totalFuelCost + equipmentCost + tollsCost;
+    final baseCosts = totalFuelCost + equipmentCost + tollsCost + hotelCost;
     final overheadCost = baseCosts * (i.overheadPercent < 0 ? 0.0 : i.overheadPercent);
     final totalCosts = baseCosts + overheadCost;
 
     // Revenue → take-home
-    final operatorShare = i.operatorSharePercent;
-    final operatorGross = i.grossPay * operatorShare;
+    // Fuel surcharge is passed through: the carrier's cut applies only to the
+    // line-haul portion of the gross (gross minus FSC), and the operator keeps
+    // their share of the FSC on top. So the operator's effective share of the
+    // gross is higher than the raw (1 - carrier cut) whenever FSC > 0.
+    //   line haul   = gross x (1 - fscPercent)
+    //   FSC kept    = gross x fscPercent x fscPercentReceived
+    //   operator    = line haul x (1 - carrierCut) + FSC kept
+    final operatorShare = i.operatorSharePercent; // 1 - carrier cut
+    final fscPct = i.fscPercent < 0 ? 0.0 : i.fscPercent;
+    final fscKeptPct = i.fscPercentReceived < 0 ? 0.0 : i.fscPercentReceived;
+    final insPct = i.carrierCutPercent <= 0
+        ? 0.0
+        : (i.insurancePercent < 0 ? 0.0 : i.insurancePercent);
+
+    // Settlement waterfall. Both the carrier insurance and the FSC are taken as
+    // a % of the ORIGINAL gross; what's left is the line haul, and the carrier
+    // cut hits that. The operator keeps their share of the line haul plus their
+    // kept share of the FSC. FSC/insurance only bite when leased (cut > 0).
+    //   insurance   = gross x insPct                 (carrier keeps)
+    //   fsc (raw)   = gross x fscPct
+    //   fsc kept    = fsc x fscPercentReceived        (operator keeps)
+    //   line haul   = gross - insurance - fsc(raw)    (= gross x (1 - ins - fsc))
+    //   carrier cut = line haul x carrierCut          (carrier keeps)
+    //   operator    = line haul x (1 - cut) + fsc kept
+    final insuranceAmount = i.grossPay * insPct;
+    final fscRaw = i.grossPay * fscPct;
+    final fscAmount = fscRaw * fscKeptPct; // FSC the operator keeps
+    var lineHaul = i.grossPay - insuranceAmount - fscRaw;
+    if (lineHaul < 0) lineHaul = 0.0;
+    final carrierCutAmount = lineHaul * i.carrierCutPercent;
+    final operatorGross = lineHaul * operatorShare + fscAmount;
+    // Effective share MUST be a pure ratio (independent of grossPay) — the quote
+    // screen computes the floor at grossPay = 0, so dividing operatorGross by
+    // grossPay would collapse to operatorShare and under-price the load.
+    var lineHaulFrac = 1.0 - insPct - fscPct;
+    if (lineHaulFrac < 0) lineHaulFrac = 0.0;
+    final effectiveShare = lineHaulFrac * operatorShare + fscPct * fscKeptPct;
     final netToOperator = operatorGross - totalCosts;
     final effectiveHourlyRate = totalHours > 0 ? netToOperator / totalHours : 0.0;
     final costPerMile = totalMiles > 0 ? totalCosts / totalMiles : 0.0;
@@ -220,12 +295,14 @@ class TruCostEngine {
     final targetEarnings = i.hourlyRate * totalHours;
     final minimumNetNeeded = totalCosts + targetEarnings;
     final minimumGrossNeeded =
-        operatorShare > 0 ? minimumNetNeeded / operatorShare : minimumNetNeeded;
+        effectiveShare > 0 ? minimumNetNeeded / effectiveShare : minimumNetNeeded;
     final minimumPerMile = totalMiles > 0 ? minimumGrossNeeded / totalMiles : 0.0;
 
     return TripResult(
       grossPay: i.grossPay,
-      carrierCut: i.grossPay * i.carrierCutPercent,
+      carrierCut: carrierCutAmount,
+      insuranceAmount: insuranceAmount,
+      fscAmount: fscAmount,
       operatorGross: operatorGross,
       emptyFuelCost: emptyFuelCost,
       loadedFuelCost: loadedFuelCost,
@@ -234,6 +311,8 @@ class TruCostEngine {
       trailerCost: trailerCost,
       equipmentCost: equipmentCost,
       tollsCost: tollsCost,
+      hotelCost: hotelCost,
+      hotelNights: hotelNights,
       overheadCost: overheadCost,
       totalCosts: totalCosts,
       netToOperator: netToOperator,

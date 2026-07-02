@@ -69,36 +69,44 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       _Step.complete => _isLeased ? 5 : 4,
     };
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Setup'),
-        leading: _step != _Step.copilotName
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: _back,
-              )
-            : null,
-      ),
-      body: Column(
-        children: [
-          LinearProgressIndicator(
-            value: (currentIdx + 1) / totalSteps,
-            backgroundColor: Colors.grey[200],
-          ),
-          Expanded(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              child: switch (_step) {
-                _Step.copilotName => CopilotNameStep(key: const ValueKey('copilotName'), onNext: _afterCopilotName),
-                _Step.setup => SetupStep(key: const ValueKey('setup'), onNext: _afterSetup),
-                _Step.carrier => CarrierStep(key: const ValueKey('carrier'), onNext: _afterCarrier),
-                _Step.rig => RigStep(key: const ValueKey('rig'), onNext: _afterRig),
-                _Step.defaults => DefaultsStep(key: const ValueKey('defaults'), onNext: _afterDefaults),
-                _Step.complete => CompleteStep(key: const ValueKey('complete'), onFinish: widget.onComplete),
-              },
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      // Tap outside a field to drop the keyboard. The numeric keypad used on
+      // several steps has no Done key, so without this it can sit over the
+      // Next button until you scroll. Applies to every step in the flow.
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        appBar: AppBar(
+          title: const Text('Setup'),
+          leading: _step != _Step.copilotName
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: _back,
+                )
+              : null,
+        ),
+        body: Column(
+          children: [
+            LinearProgressIndicator(
+              value: (currentIdx + 1) / totalSteps,
+              backgroundColor: Colors.grey[200],
             ),
-          ),
-        ],
+            Expanded(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: switch (_step) {
+                  _Step.copilotName => CopilotNameStep(key: const ValueKey('copilotName'), onNext: _afterCopilotName),
+                  _Step.setup => SetupStep(key: const ValueKey('setup'), onNext: _afterSetup),
+                  _Step.carrier => CarrierStep(key: const ValueKey('carrier'), onNext: _afterCarrier),
+                  _Step.rig => RigStep(key: const ValueKey('rig'), onNext: _afterRig),
+                  _Step.defaults => DefaultsStep(key: const ValueKey('defaults'), onNext: _afterDefaults),
+                  _Step.complete => CompleteStep(key: const ValueKey('complete'), onFinish: widget.onComplete),
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -38,7 +38,7 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
   bool _noHqVoices = false; // true when no Enhanced/Premium voices are installed
   String _copilotName = 'Co-Pilot';
   int _memoryDays = 1; // 0 = no memory; how far back the co-pilot recalls
-  String _copilotAvatar = 'initial'; // 'initial' or a face key (f1..f3/m1..m3)
+  String _copilotAvatar = 'gigi'; // default face is Gigi; 'initial' = letter circle fallback
 
   // What the driver hears when previewing — keep it on-brand and short.
   String get _sample =>
@@ -71,7 +71,9 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
         _copilotName = (p['copilot_name'] ?? 'Bob').toString();
         _nameCtrl.text = _copilotName;
         _driverCtrl.text = (p['preferred_name'] ?? '').toString();
-        _copilotAvatar = (p['copilot_avatar'] ?? 'initial').toString();
+        final storedAvatar = (p['copilot_avatar'] ?? 'gigi').toString();
+        // Retire the old green-circle 'initial' default — show Gigi instead.
+        _copilotAvatar = storedAvatar == 'initial' ? 'gigi' : storedAvatar;
         _memoryDays = (p['copilot_memory_days'] ?? 1) as int;
         final savedName = (p['copilot_voice_name'] ?? '').toString();
         final savedLocale = (p['copilot_voice_locale'] ?? '').toString();
@@ -469,7 +471,7 @@ class _VoiceSettingsScreenState extends State<VoiceSettingsScreen> {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                for (final key in const ['initial', 'f1', 'f2', 'f3', 'f4', 'm1', 'm2', 'm3', 'm4'])
+                for (final key in const ['gigi', 'f1', 'f2', 'f3', 'f4', 'm1', 'm2', 'm3', 'm4'])
                   _avatarOption(key),
               ],
             ),

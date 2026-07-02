@@ -50,6 +50,7 @@ flutter:
     - assets/copilot/m2.png
     - assets/copilot/m3.png
     - assets/copilot/m4.png
+    - assets/copilot/gigi.png
     - assets/trucost-copilot-splash.mp4
     
 flutter_launcher_icons:

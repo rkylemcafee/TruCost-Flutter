@@ -107,6 +107,44 @@ class _RigStepState extends State<RigStep> {
       final user = _supabase.auth.currentUser;
       if (user == null) return;
 
+      final truckNum = _truckNumCtrl.text.trim();
+      final trailerNum = _trailerNumCtrl.text.trim();
+
+      // Guard against duplicate unit numbers for this operator. A fleet can't
+      // have two trucks (or two trailers) wearing the same number.
+      final existing = await _supabase
+          .from('units')
+          .select('unit_number, unit_type')
+          .eq('user_id', user.id)
+          .filter('deleted_at', 'is', null);
+      bool dup(String num, String type) => existing.any((u) =>
+          (u['unit_number'] ?? '').toString().trim() == num &&
+          u['unit_type'] == type &&
+          num.isNotEmpty);
+      if (dup(truckNum, 'truck')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Truck $truckNum already exists.')));
+        }
+        setState(() => _loading = false);
+        return;
+      }
+      if (dup(trailerNum, 'trailer')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Trailer $trailerNum already exists.')));
+        }
+        setState(() => _loading = false);
+        return;
+      }
+
+      // This onboarding rig becomes THE active rig — clear any previously
+      // active units first so we never end up with several marked active.
+      await _supabase
+          .from('units')
+          .update({'is_active': false})
+          .eq('user_id', user.id);
+
       // Save truck
       final truckRow = await _supabase.from('units').insert({
         'user_id': user.id,
@@ -192,6 +230,18 @@ class _RigStepState extends State<RigStep> {
     super.dispose();
   }
 
+  // Residual auto-tracks the purchase price: 40% for the truck, 60% for the
+  // trailer. Recomputes whenever the price changes; user can still type over it.
+  void _recalcTruckResidual() {
+    final price = double.tryParse(_truckPriceCtrl.text) ?? 0;
+    _truckResidualCtrl.text = (price * 0.40).round().toString();
+  }
+
+  void _recalcTrailerResidual() {
+    final price = double.tryParse(_trailerPriceCtrl.text) ?? 0;
+    _trailerResidualCtrl.text = (price * 0.60).round().toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
@@ -233,6 +283,7 @@ class _RigStepState extends State<RigStep> {
             TextField(
               controller: _truckPriceCtrl,
               keyboardType: TextInputType.number,
+              onChanged: (_) => setState(_recalcTruckResidual),
               decoration: const InputDecoration(
                   labelText: 'Purchase Price (\$)',
                   border: OutlineInputBorder()),
@@ -364,6 +415,7 @@ class _RigStepState extends State<RigStep> {
             TextField(
               controller: _trailerPriceCtrl,
               keyboardType: TextInputType.number,
+              onChanged: (_) => setState(_recalcTrailerResidual),
               decoration: const InputDecoration(
                   labelText: 'Purchase Price (\$)',
                   border: OutlineInputBorder()),

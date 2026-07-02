@@ -40,6 +40,14 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
   String? _truckLabel;
   String? _trailerLabel;
 
+  // IFTA: per-jurisdiction diesel rate + surcharge (from ifta_fuel_tax_rates),
+  // and the gallons burned per state for this load. Used to estimate the fuel
+  // tax the carrier deducts from the settlement check.
+  final Map<String, double> _iftaRate = {};
+  final Map<String, double> _iftaSurcharge = {};
+  List<MapEntry<String, double>> _stateGallons = [];
+  bool _iftaExpanded = false; // settlement IFTA breakdown open/closed
+
   @override
   void initState() {
     super.initState();
@@ -116,10 +124,25 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
 
       final ejRaw = trip?['estimate_json'];
       _ej = ejRaw is Map ? Map<String, dynamic>.from(ejRaw) : {};
+      // Newer estimates nest the numbers under breakdown / rates / levers
+      // (schemaVersion 2). Flatten those up so every existing read — equipment,
+      // overhead, net, carrier cut % — resolves the same for old and new loads.
+      // These are the frozen values captured at book time; nothing here is
+      // recomputed from the current profile.
+      if (_ej['breakdown'] is Map || _ej['rates'] is Map || _ej['levers'] is Map) {
+        final flat = Map<String, dynamic>.from(_ej);
+        for (final section in const ['breakdown', 'rates', 'levers']) {
+          if (_ej[section] is Map) {
+            flat.addAll(Map<String, dynamic>.from(_ej[section] as Map));
+          }
+        }
+        _ej = flat;
+      }
       _trip = trip;
       _profile = profile;
       _expenses = List<Map<String, dynamic>>.from(exp);
       _docs = List<Map<String, dynamic>>.from(docs);
+      await _loadIfta(trip);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -372,7 +395,10 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
     final reimb = _reimbursableTotal();
     final cardFuel = _carrierCardFuel();
     final advances = _advanceTotal();
-    final expectedCheck = hisShare != null ? hisShare + reimb - cardFuel - advances : null;
+    final ifta = _estIfta();
+    final expectedCheck = hisShare != null
+        ? hisShare + reimb - cardFuel - advances - ifta.tax
+        : null;
 
     final rows = <Widget>[
       _row('Load gross', _money(gross)),
@@ -390,12 +416,51 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
       rows.add(_row('− Cash advances', '-${_money(advances, dp: 2)}',
           valueColor: Colors.orange[800]));
     }
+    if (_stateGallons.isNotEmpty && _iftaRate.isNotEmpty) {
+      final prepaid = ifta.tax <= 0;
+      rows.add(InkWell(
+        onTap: () => setState(() => _iftaExpanded = !_iftaExpanded),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              Icon(_iftaExpanded ? Icons.expand_less : Icons.expand_more,
+                  size: 18, color: Colors.grey[600]),
+              const SizedBox(width: 2),
+              Expanded(
+                child: Text(
+                  prepaid
+                      ? 'Fuel tax (IFTA) — you\'re prepaid'
+                      : 'They\'ll likely deduct for fuel tax (IFTA${ifta.worstCase ? ', worst case' : ''})',
+                  style: TextStyle(fontSize: 13, color: Colors.grey[800]),
+                ),
+              ),
+              Text(prepaid ? '\$0.00' : '-${_money(ifta.tax, dp: 2)}',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: prepaid ? Colors.green[700] : Colors.orange[800])),
+            ],
+          ),
+        ),
+      ));
+      if (_iftaExpanded) rows.addAll(_iftaBreakdownWidgets());
+    }
     rows.add(const Divider());
     rows.add(_row('EXPECTED CHECK', _money(expectedCheck), bold: true, valueColor: Colors.green[800]));
     rows.add(const SizedBox(height: 6));
     rows.add(Text(
-      'Before any carrier-specific deductions (fuel tax, insurance, ELD, trailer rent). '
-      'Reconcile this against your settlement statement.',
+      (_stateGallons.isNotEmpty && _iftaRate.isNotEmpty)
+          ? (ifta.worstCase
+              ? 'Fuel tax is a worst-case IFTA estimate — it assumes you bought no '
+                  'fuel on this load. Log fuel receipts (tagged by state) to lower it. '
+                  'Still excludes insurance, ELD, and trailer rent. Reconcile against '
+                  'your settlement statement.'
+              : 'Fuel tax is an IFTA estimate — what you owe on the fuel you burned, '
+                  'minus credit for fuel you bought. Still excludes insurance, ELD, '
+                  'and trailer rent. Reconcile against your settlement statement.')
+          : 'Before any carrier-specific deductions (fuel tax, insurance, ELD, '
+              'trailer rent). Reconcile this against your settlement statement.',
       style: TextStyle(fontSize: 11, color: Colors.grey[600], height: 1.3),
     ));
     return _card('SETTLEMENT — YOUR CHECK', rows, accent: Colors.green[800]);
@@ -494,6 +559,257 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
       m[st] = (m[st] ?? 0) + gal; // '' = no state tagged
     }
     return m;
+  }
+
+  // Pull IFTA diesel rates + this load's gallons-burned-by-state, so the
+  // settlement can estimate the fuel tax the carrier deducts. Best-effort —
+  // any failure just leaves the estimate off; it never breaks the sheet.
+  Future<void> _loadIfta(Map<String, dynamic>? trip) async {
+    try {
+      final rows = await _supabase
+          .from('ifta_fuel_tax_rates')
+          .select('jurisdiction, rate_usd_gal, surcharge_usd_gal')
+          .eq('country', 'US')
+          .eq('fuel_type', 'diesel');
+      _iftaRate.clear();
+      _iftaSurcharge.clear();
+      for (final r in rows) {
+        final j = (r['jurisdiction'] ?? '').toString().toUpperCase().trim();
+        if (j.isEmpty) continue;
+        _iftaRate[j] = _n(r['rate_usd_gal']) ?? 0;
+        _iftaSurcharge[j] = _n(r['surcharge_usd_gal']) ?? 0;
+      }
+
+      // Gallons burned per state. Prefer the frozen estimate; if the load has no
+      // state breakdown (new Ugly Truth bookings only store total miles), pull
+      // it live from the same route service the Fuel-by-State screen uses.
+      final fuelCost = _n(trip?['estimated_fuel_cost']) ?? _n(_ej['totalFuelCost']);
+      final price = _n(trip?['fuel_price_used']) ?? _n(_ej['fuelPriceUsed']);
+      final expectedGal =
+          (fuelCost != null && price != null && price > 0) ? fuelCost / price : null;
+
+      var gbs = _gallonsByState(expectedGal);
+      if (gbs.isEmpty) {
+        final origin = (trip?['origin'] ?? '').toString();
+        final dest = (trip?['destination'] ?? '').toString();
+        if (origin.isNotEmpty && dest.isNotEmpty) {
+          final res = await _supabase.functions
+              .invoke('state-fuel', body: {'pickup': origin, 'delivery': dest});
+          final data = res.data;
+          if (data is Map && data['rows'] is List) {
+            final out = <String, double>{};
+            for (final row in (data['rows'] as List)) {
+              if (row is Map) {
+                final s = (row['state'] ?? '').toString().toUpperCase().trim();
+                final gal = _n(row['gallons']) ?? 0;
+                if (s.isNotEmpty && gal > 0) out[s] = (out[s] ?? 0) + gal;
+              }
+            }
+            gbs = out.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+          }
+        }
+      }
+      _stateGallons = gbs;
+    } catch (_) {
+      // leave the IFTA estimate off on any failure
+    }
+  }
+
+  // Fair estimate of the fuel tax the carrier nets out of the check — not a
+  // full IFTA/HUT filing. You owe each state's diesel rate (plus any surcharge)
+  // on the gallons you burn there; fuel bought in-state credits back the base
+  // rate you already paid at the pump. Net it, floor at zero: buy none and it's
+  // the full worst case; prepay enough and they "zero it and move on."
+  ({double tax, bool worstCase, double owed, double credit}) _estIfta() {
+    if (_stateGallons.isEmpty || _iftaRate.isEmpty) {
+      return (tax: 0.0, worstCase: false, owed: 0.0, credit: 0.0);
+    }
+    final bought = _boughtByState();
+    double owed = 0, credit = 0, boughtTotal = 0;
+    for (final e in _stateGallons) {
+      final st = e.key.toUpperCase();
+      owed += e.value * ((_iftaRate[st] ?? 0) + (_iftaSurcharge[st] ?? 0));
+      credit += (bought[st] ?? 0) * (_iftaRate[st] ?? 0);
+    }
+    bought.forEach((_, v) => boughtTotal += v);
+    final net = owed - credit;
+    return (
+      tax: net > 0 ? net : 0.0,
+      worstCase: boughtTotal <= 0,
+      owed: owed,
+      credit: credit,
+    );
+  }
+
+  // The proof: per-state IFTA in alphabetical order — what you bought there,
+  // what you owe on the fuel you burned there, and any credit if you bought
+  // more than you burned. Makes plain that cheap-state fuel only credits that
+  // state's low rate, so it barely offsets the high-tax miles you ran.
+  List<Widget> _iftaBreakdownWidgets() {
+    final burned = {for (final e in _stateGallons) e.key.toUpperCase(): e.value};
+    final bought = _boughtByState();
+    final states = <String>{
+      ...burned.keys,
+      ...bought.keys.where((k) => k.isNotEmpty),
+    }.toList()
+      ..sort();
+
+    final out = <Widget>[
+      const SizedBox(height: 8),
+      _iftaRow4('St', 'Bought', 'Owe', 'Credit', header: true),
+      Divider(height: 10, color: Colors.grey[300]),
+    ];
+    double totOwe = 0, totCredit = 0, totBought = 0;
+    bool anySurcharge = false;
+    for (final st in states) {
+      final b = burned[st] ?? 0;
+      final bt = bought[st] ?? 0;
+      final rate = _iftaRate[st] ?? 0;
+      final sur = _iftaSurcharge[st] ?? 0;
+      if (sur > 0) anySurcharge = true;
+      final owe = b * (rate + sur);
+      final credit = bt * rate;
+      totOwe += owe;
+      totCredit += credit;
+      totBought += bt;
+      out.add(_iftaRow4(
+        '$st${sur > 0 ? '*' : ''}',
+        bt > 0 ? '${bt.toStringAsFixed(0)}g' : '—',
+        owe > 0 ? _money(owe, dp: 0) : '—',
+        credit > 0 ? _money(credit, dp: 0) : '—',
+      ));
+    }
+    final untagged = bought[''] ?? 0;
+    if (untagged > 0) {
+      totBought += untagged;
+      out.add(_iftaRow4('?', '${untagged.toStringAsFixed(0)}g', '—', '—'));
+    }
+    out.add(Divider(height: 10, color: Colors.grey[300]));
+    out.add(_iftaRow4('Tot', totBought > 0 ? '${totBought.toStringAsFixed(0)}g' : '—',
+        _money(totOwe, dp: 0), totCredit > 0 ? _money(totCredit, dp: 0) : '—',
+        bold: true));
+    out.add(const SizedBox(height: 6));
+    final prepaid = totCredit >= totOwe && totCredit > 0;
+    out.add(Text(
+      (prepaid
+              ? 'Your pump credit covers what you owe on this load, so nothing\'s '
+                  'deducted here. Any overpayment comes back on your quarterly IFTA '
+                  'filing — not this check.'
+              : 'You owe each state\'s tax on the fuel you burn there — no matter '
+                  'where you bought it. Buying cheap in a low-tax state only credits '
+                  'that state\'s low rate, so it barely offsets your high-tax miles.') +
+          (untagged > 0 ? ' Tag fuel receipts by state to credit them.' : '') +
+          (anySurcharge ? ' (* state charges an extra surcharge.)' : ''),
+      style: TextStyle(fontSize: 11, color: Colors.grey[600], height: 1.3),
+    ));
+    return out;
+  }
+
+  Widget _iftaRow4(String a, String b, String c, String d,
+      {bool header = false, bool bold = false}) {
+    final base = TextStyle(
+        fontSize: 12, fontWeight: (header || bold) ? FontWeight.w700 : FontWeight.normal);
+    final grey = base.copyWith(color: header ? Colors.grey[700] : Colors.grey[800]);
+    final oweStyle = base.copyWith(color: header ? Colors.grey[700] : Colors.orange[800]);
+    final credStyle = base.copyWith(color: header ? Colors.grey[700] : Colors.green[700]);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          SizedBox(width: 40, child: Text(a, style: grey)),
+          Expanded(child: Text(b, style: grey, textAlign: TextAlign.right)),
+          const SizedBox(width: 6),
+          Expanded(child: Text(c, style: oweStyle, textAlign: TextAlign.right)),
+          const SizedBox(width: 6),
+          Expanded(child: Text(d, style: credStyle, textAlign: TextAlign.right)),
+        ],
+      ),
+    );
+  }
+
+  // Same per-state IFTA proof, rendered for the PDF so the itemization prints —
+  // useful if a carrier deducts your shortfalls but conveniently forgets your
+  // credits.
+  List<pw.Widget> _pIftaBreakdown() {
+    final burned = {for (final e in _stateGallons) e.key.toUpperCase(): e.value};
+    final bought = _boughtByState();
+    final states = <String>{
+      ...burned.keys,
+      ...bought.keys.where((k) => k.isNotEmpty),
+    }.toList()
+      ..sort();
+    final out = <pw.Widget>[
+      pw.SizedBox(height: 4),
+      _pIftaRow4('St', 'Bought', 'Owe', 'Credit', header: true),
+      _pDivider(),
+    ];
+    double totOwe = 0, totCredit = 0, totBought = 0;
+    bool anySur = false;
+    for (final st in states) {
+      final b = burned[st] ?? 0;
+      final bt = bought[st] ?? 0;
+      final rate = _iftaRate[st] ?? 0;
+      final sur = _iftaSurcharge[st] ?? 0;
+      if (sur > 0) anySur = true;
+      final owe = b * (rate + sur);
+      final credit = bt * rate;
+      totOwe += owe;
+      totCredit += credit;
+      totBought += bt;
+      out.add(_pIftaRow4(
+        '$st${sur > 0 ? '*' : ''}',
+        bt > 0 ? '${bt.toStringAsFixed(0)}g' : '-',
+        owe > 0 ? _money(owe, dp: 0) : '-',
+        credit > 0 ? _money(credit, dp: 0) : '-',
+      ));
+    }
+    final untagged = bought[''] ?? 0;
+    if (untagged > 0) {
+      totBought += untagged;
+      out.add(_pIftaRow4('?', '${untagged.toStringAsFixed(0)}g', '-', '-'));
+    }
+    out.add(_pDivider());
+    out.add(_pIftaRow4('Tot', totBought > 0 ? '${totBought.toStringAsFixed(0)}g' : '-',
+        _money(totOwe, dp: 0), totCredit > 0 ? _money(totCredit, dp: 0) : '-',
+        bold: true));
+    out.add(pw.SizedBox(height: 3));
+    final prepaid = totCredit >= totOwe && totCredit > 0;
+    out.add(pw.Text(
+      (prepaid
+              ? 'Your pump credit covers what you owe on this load, so nothing is '
+                  'deducted here. Any overpayment comes back on your quarterly IFTA '
+                  'filing, not this check.'
+              : 'You owe each state\'s tax on the fuel you burn there, no matter '
+                  'where you bought it. Buying cheap in a low-tax state only credits '
+                  'that state\'s low rate.') +
+          (anySur ? ' (* state charges an extra surcharge.)' : ''),
+      style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
+    ));
+    return out;
+  }
+
+  pw.Widget _pIftaRow4(String a, String b, String c, String d,
+      {bool header = false, bool bold = false}) {
+    final w = (header || bold) ? pw.FontWeight.bold : pw.FontWeight.normal;
+    pw.Widget cell(String t, PdfColor col) => pw.Expanded(
+          child: pw.Text(_ascii(t),
+              textAlign: pw.TextAlign.right,
+              style: pw.TextStyle(fontSize: 9, fontWeight: w, color: col)),
+        );
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 1),
+      child: pw.Row(
+        children: [
+          pw.SizedBox(
+              width: 34,
+              child: pw.Text(_ascii(a),
+                  style: pw.TextStyle(fontSize: 9, fontWeight: w, color: PdfColors.grey800))),
+          cell(b, PdfColors.grey800),
+          cell(c, header ? PdfColors.grey700 : PdfColors.orange800),
+          cell(d, header ? PdfColors.grey700 : PdfColors.green700),
+        ],
+      ),
+    );
   }
 
   Widget _fuelCard() {
@@ -800,6 +1116,19 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
     }
   }
 
+  // The PDF font is Latin-only, so any fancy Unicode (arrows, em/en dashes,
+  // bullets, middots, minus sign) renders as a missing-glyph box. Fold them to
+  // plain ASCII for anything we draw into the PDF.
+  String _ascii(String s) => s
+      .replaceAll('\u2192', ' to ') // →
+      .replaceAll('\u2014', ' - ') // —
+      .replaceAll('\u2013', '-') // –
+      .replaceAll('\u2212', '-') // −
+      .replaceAll('\u2022', '-') // •
+      .replaceAll('\u00b7', '-') // ·
+      .replaceAll('  ', ' ')
+      .trim();
+
   pw.Widget _pRow(String label, String value, {bool bold = false, PdfColor? color}) {
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 2),
@@ -807,10 +1136,10 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           pw.Expanded(
-            child: pw.Text(label, style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
+            child: pw.Text(_ascii(label), style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700)),
           ),
           pw.SizedBox(width: 12),
-          pw.Text(value,
+          pw.Text(_ascii(value),
               textAlign: pw.TextAlign.right,
               style: pw.TextStyle(
                 fontSize: 10,
@@ -834,7 +1163,7 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
       child: pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(title,
+          pw.Text(_ascii(title),
               style: pw.TextStyle(
                   fontSize: 11,
                   fontWeight: pw.FontWeight.bold,
@@ -891,7 +1220,10 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
     final reimb = _reimbursableTotal();
     final cardFuel = _carrierCardFuel();
     final advances = _advanceTotal();
-    final expectedCheck = hisShare != null ? hisShare + reimb - cardFuel - advances : null;
+    final ifta = _estIfta();
+    final expectedCheck = hisShare != null
+        ? hisShare + reimb - cardFuel - advances - ifta.tax
+        : null;
 
     final setRows = <pw.Widget>[_pRow('Load gross', _money(gross))];
     if (hisShare != null) {
@@ -901,12 +1233,31 @@ class _TripSheetScreenState extends State<TripSheetScreen> {
     setRows.add(_pRow('+ Reimbursable expenses', _money(reimb, dp: 2)));
     if (cardFuel > 0) setRows.add(_pRow('- Fuel on carrier card', '-${_money(cardFuel, dp: 2)}', color: PdfColors.orange800));
     if (advances > 0) setRows.add(_pRow('- Cash advances', '-${_money(advances, dp: 2)}', color: PdfColors.orange800));
+    if (_stateGallons.isNotEmpty && _iftaRate.isNotEmpty) {
+      final prepaid = ifta.tax <= 0;
+      setRows.add(_pRow(
+          prepaid
+              ? 'Fuel tax (IFTA) - prepaid'
+              : '- Est. fuel tax (IFTA${ifta.worstCase ? ', worst case' : ''})',
+          prepaid ? '\$0.00' : '-${_money(ifta.tax, dp: 2)}',
+          color: prepaid ? PdfColors.green700 : PdfColors.orange800));
+      setRows.addAll(_pIftaBreakdown());
+    }
     setRows.add(_pDivider());
     setRows.add(_pRow('EXPECTED CHECK', _money(expectedCheck), bold: true, color: PdfColors.green800));
     setRows.add(pw.SizedBox(height: 4));
     setRows.add(pw.Text(
-      'Before any carrier-specific deductions (fuel tax, insurance, ELD, trailer rent). '
-      'Reconcile against your settlement statement.',
+      (_stateGallons.isNotEmpty && _iftaRate.isNotEmpty)
+          ? (ifta.worstCase
+              ? _ascii('Fuel tax is a worst-case IFTA estimate, and assumes no fuel '
+                  'bought on this load. Log state-tagged fuel receipts to lower it. '
+                  'Still excludes insurance, ELD, trailer rent. Reconcile against your '
+                  'settlement statement.')
+              : _ascii('Fuel tax is an IFTA estimate - what you owe on the fuel you '
+                  'burned, minus credit for fuel you bought. Still excludes insurance, '
+                  'ELD, trailer rent. Reconcile against your settlement statement.'))
+          : _ascii('Before any carrier-specific deductions (fuel tax, insurance, '
+              'ELD, trailer rent). Reconcile against your settlement statement.'),
       style: pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
     ));
 
