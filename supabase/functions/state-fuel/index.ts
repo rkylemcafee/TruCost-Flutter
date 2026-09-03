@@ -21,7 +21,7 @@ const corsHeaders = {
 
 async function geocodeOne(q: string): Promise<{ lat: number; lng: number } | null> {
   try {
-    const res = await fetch("https://trucost.app/api/geocode", {
+    const res = await fetch("https://www.trucost.app/api/geocode", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ q, country: "US" }),
@@ -40,10 +40,18 @@ async function stateMilesForLeg(origin: string, destination: string): Promise<Re
   const d = await geocodeOne(destination);
   if (!o || !d) return null;
   try {
-    const res = await fetch("https://trucost.app/api/google-route", {
+    const res = await fetch("https://www.trucost.app/api/google-route", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ origin: o, destination: d }),
+      // originLabel / destLabel are the city names the driver typed. The route
+      // cache keys on them ("louisville ky|miami fl") so the same lane is one
+      // row no matter where in town each address geocoded to.
+      body: JSON.stringify({
+        origin: o,
+        destination: d,
+        originLabel: origin,
+        destLabel: destination,
+      }),
     });
     if (!res.ok) return null;
     const j = await res.json();
