@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'quote/ugly_truth_screen.dart';
 import 'trips/saved_trips_screen.dart';
+import 'survey/survey_list_screen.dart';
 import 'trips/trip_sheet_screen.dart';
 import 'contacts/contacts_screen.dart';
 import 'copilot/copilot_screen.dart';
@@ -165,6 +166,9 @@ class _HomePageState extends State<HomePage> {
                                 const SizedBox(height: 8),
                                 _navButton(context, Icons.document_scanner, 'Scan Documents', const ReceiptCaptureScreen(),
                                     subtitle: 'Receipts \u00b7 BOL \u00b7 POD \u00b7 Rate Cons \u00b7 Permits'),
+                                const SizedBox(height: 8),
+                                _navButton(context, Icons.signpost, 'Route Surveys', const SurveyListScreen(),
+                                    subtitle: 'Walk the route \u00b7 photograph it \u00b7 record clearances'),
                                 const SizedBox(height: 8),
                                 _navButton(context, Icons.bookmark, 'Saved Trips', const SavedTripsScreen()),
                                 const SizedBox(height: 8),
