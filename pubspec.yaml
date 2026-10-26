@@ -30,6 +30,9 @@ dependencies:
   google_fonts: ^8.1.0
   video_player: ^2.11.1
   shared_preferences: ^2.5.5
+  google_maps_flutter: ^2.18.1
+  file_picker: ^13.3.0
+  archive: ^4.5.2
 
 dev_dependencies:
   flutter_test:

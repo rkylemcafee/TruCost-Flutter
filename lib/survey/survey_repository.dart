@@ -8,6 +8,7 @@
 
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SurveyRepository {
@@ -106,6 +107,80 @@ class SurveyRepository {
 
   Future<void> deletePhoto(String id) async {
     await _db.from('survey_photos').delete().eq('id', id);
+  }
+
+  /// Load dimensions, names, dates — the Load & Route tab's fields.
+  Future<void> updateSurvey(String id, Map<String, dynamic> patch) async {
+    await _db.from('route_surveys').update({
+      ...patch,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }).eq('id', id);
+  }
+
+  // ── Documents ────────────────────────────────────────────────────────────
+  //
+  // The paperwork about the whole move — the state's survey, the permit, the
+  // reports made from it — as opposed to photos taken at a point. Same
+  // survey_documents table the web writes, so a report made on the phone is
+  // on the desk's Reports tab too.
+
+  /// Everything filed against the survey, newest first.
+  Future<List<Map<String, dynamic>>> documents(String surveyId) async {
+    final rows = await _db
+        .from('survey_documents')
+        .select()
+        .eq('survey_id', surveyId)
+        .order('created_at', ascending: false);
+    return List<Map<String, dynamic>>.from(rows);
+  }
+
+  /// Store a file and record it. The stored name keeps the original inside a
+  /// folder for the survey and kind, with a timestamp so two "map.png"s on
+  /// one job are two maps rather than one.
+  Future<Map<String, dynamic>> uploadDocument({
+    required String surveyId,
+    required Uint8List bytes,
+    required String fileName,
+    required String mimeType,
+    required String kind,
+    String caption = '',
+  }) async {
+    final safe = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    final path = 'surveys/$surveyId/$kind/${DateTime.now().millisecondsSinceEpoch}-$safe';
+    await _db.storage.from('tenant-assets').uploadBinary(
+          path,
+          bytes,
+          fileOptions: FileOptions(contentType: mimeType, upsert: false),
+        );
+    try {
+      return await _db
+          .from('survey_documents')
+          .insert({
+            'survey_id': surveyId,
+            'kind': kind,
+            'storage_path': path,
+            'file_name': fileName,
+            'mime_type': mimeType,
+            'byte_size': bytes.length,
+            'caption': caption.isEmpty ? null : caption,
+          })
+          .select()
+          .single();
+    } catch (_) {
+      // The row is what makes the file findable; without it the upload is
+      // litter in a bucket nobody looks in.
+      await _db.storage.from('tenant-assets').remove([path]);
+      rethrow;
+    }
+  }
+
+  /// Row first, file second: an orphaned file is untidy, a row pointing at
+  /// nothing looks like a document until somebody opens it.
+  Future<void> deleteDocument(Map<String, dynamic> doc) async {
+    await _db.from('survey_documents').delete().eq('id', doc['id']);
+    try {
+      await _db.storage.from('tenant-assets').remove([doc['storage_path']]);
+    } catch (_) {}
   }
 
   String publicUrl(String storagePath) =>

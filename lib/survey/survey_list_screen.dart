@@ -1,9 +1,12 @@
 // lib/survey/survey_list_screen.dart
 //
 // The surveys this tenant has. The office builds them on the web; this is how
-// they get into the truck.
+// they get into the truck. A state's own route survey — the PDF they sent, or
+// the paper they handed over — can also start one from here.
 
 import 'package:flutter/material.dart';
+import 'import_state_survey_screen.dart';
+import 'survey_doc_source.dart';
 import 'survey_repository.dart';
 import 'survey_screen.dart';
 
@@ -50,6 +53,18 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Route Surveys')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          final doc = await pickSurveyDoc(context);
+          if (doc == null || !context.mounted) return;
+          await Navigator.push(context, MaterialPageRoute(
+            builder: (_) => ImportStateSurveyScreen(doc: doc),
+          ));
+          if (mounted) _load();
+        },
+        icon: const Icon(Icons.add),
+        label: const Text('State survey'),
+      ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: _loading
@@ -75,7 +90,7 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
                         SizedBox(height: 120),
                         Center(child: Text('No surveys yet.', style: TextStyle(color: Colors.grey))),
                         SizedBox(height: 8),
-                        Center(child: Text('Build one on the web and it appears here.',
+                        Center(child: Text('Build one on the web, or bring in a state survey with +.',
                             style: TextStyle(color: Colors.grey, fontSize: 12))),
                       ])
                     : ListView.separated(

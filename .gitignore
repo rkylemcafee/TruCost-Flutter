@@ -44,3 +44,7 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 lib/config/supabase_config.dart
+
+# Map key, kept out of git like the Supabase one
+lib/config/maps_config.dart
+ios/Flutter/Secrets.xcconfig
